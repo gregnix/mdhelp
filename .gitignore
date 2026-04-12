@@ -1,0 +1,9 @@
+
+# Build
+build/mdhelp.vfs
+dist/
+build/runtime_*
+pdf_test/
+
+# Private docs
+nogit/
