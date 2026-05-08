@@ -6,40 +6,41 @@
 #
 # Directory structure:
 #   mdhelp/
-#   +-- app/   
-#   +-- lib/tm/                   mdhelp:  search, history, clipboard
-#   +-- vendors/tm/            mdstack: mdparser, mdmodel, mdviewer, pdf
+#   +-- app/                   this file
+#   +-- lib/tm/                mdhelp-eigene Module (mdeditor, mdhelp_pdf, ...)
 #   +-- demo/                  Demos for the modules
-#   +-- mdhelp.tcl             this file
 #   +-- docs/                  Markdown documentation
+#
+# Externe Module kommen via `package require` aus dem User-tm-Pfad
+# (siehe README — typisch ~/.tclshrc mit `::tcl::tm::path add ...`).
+# Eigene Module liegen in lib/tm/.
 #
 # Start:
 #   wish mdhelp.tcl ?docs-directory?
 #   tclsh mdhelp.tcl ?docs-directory?
 package require Tk 8.6-
 
-# --- Paths ---
 set appDir [file dirname [file normalize [info script]]]
-tcl::tm::path add [file join $appDir .. lib tm]
-tcl::tm::path add [file join $appDir .. vendors tm]
-package require mdparser  0.2
-package require mdmodel   0.1
-package require mdviewer   0.3
-package require mdvalidator 0.1
-package require mdeditorkit 0.2
-package require mdoutline    0.1
-package require mdtheme      0.1
-package require mdhtml        0.1
+::tcl::tm::path add [file join $appDir .. lib tm]
+
+package require mdstack::parser     0.2
+package require mdstack::model      0.1
+package require mdstack::viewer     0.3
+package require mdstack::validator  0.1
+package require mdstack::editorkit  0.2
+package require mdstack::outline    0.1
+package require mdstack::theme      0.1
+package require mdstack::html       0.1
+package require mdstack::text       0.1
+package require mdstack::contextmenu 0.1
 package require mdhelp_search    0.1
 package require mdhelp_history   0.1
 package require mdhelp_clipboard 0.1
 package require mdindexgen       0.1
-package require mdtext           0.1
-package require mdcontextmenu    0.1
 
 # PDF optional (pdf4tcl not available everywhere)
 set ::hasPdf 0
-if {![catch {package require mdpdf 0.2}]} {
+if {![catch {package require mdhelp_pdf 0.3}]} {
     set ::hasPdf 1
 }
 
@@ -119,10 +120,10 @@ proc app::buildUI {} {
     .menubar.edit add separator
     .menubar.edit add command -label "Copy" \
         -accelerator "Ctrl+C" \
-        -command {mdhelp_clipboard::copy [mdviewer::widget [set ::app::viewerPath]]}
+        -command {mdhelp_clipboard::copy [mdstack::viewer::widget [set ::app::viewerPath]]}
     .menubar.edit add command -label "Select All" \
         -accelerator "Ctrl+A" \
-        -command {mdhelp_clipboard::selectAll [mdviewer::widget [set ::app::viewerPath]]}
+        -command {mdhelp_clipboard::selectAll [mdstack::viewer::widget [set ::app::viewerPath]]}
     .menubar.edit add separator
     .menubar.edit add command -label "Edit File..." \
         -accelerator "Ctrl+E" \
@@ -146,8 +147,8 @@ proc app::buildUI {} {
     menu .menubar.view.theme -tearoff 0
     .menubar.view add cascade -label "Color Scheme" \
         -menu .menubar.view.theme
-    foreach tn [mdtheme::names] {
-        set label [dict get [mdtheme::theme $tn] name]
+    foreach tn [mdstack::theme::names] {
+        set label [dict get [mdstack::theme::theme $tn] name]
         .menubar.view.theme add radiobutton -label $label \
             -variable ::app::theme -value $tn \
             -command [list app::setTheme $tn]
@@ -164,22 +165,22 @@ proc app::buildUI {} {
     menu .menubar.help -tearoff 0
     .menubar add cascade -label "Help" -menu .menubar.help
     .menubar.help add command -label "Quick Start" \
-        -accelerator "F1" -command {app::openHelpPage en/kurzanleitung.md}
+        -accelerator "F1" -command {app::openHelpPage en/quickstart.md}
     .menubar.help add command -label "Viewer Guide" \
-        -command {app::openHelpPage en/bedienung.md}
+        -command {app::openHelpPage en/viewer.md}
     .menubar.help add command -label "Editor" \
         -command {app::openHelpPage en/editor.md}
     .menubar.help add command -label "Keyboard Shortcuts" \
-        -command {app::openHelpPage en/tastenkuerzel.md}
+        -command {app::openHelpPage en/shortcuts.md}
     .menubar.help add command -label "Markdown Syntax" \
         -command {app::openHelpPage en/markdown-syntax.md}
     .menubar.help add separator
     .menubar.help add command -label "Tips and Tricks" \
-        -command {app::openHelpPage en/guides/tipps.md}
+        -command {app::openHelpPage en/guides/tips.md}
     .menubar.help add command -label "PDF Export" \
         -command {app::openHelpPage en/guides/pdf-export.md}
     .menubar.help add command -label "Custom Documentation" \
-        -command {app::openHelpPage en/guides/eigene-doku.md}
+        -command {app::openHelpPage en/guides/own-docs.md}
     .menubar.help add separator
     .menubar.help add command -label "Validate AST" \
         -command app::validateAst
@@ -316,7 +317,7 @@ proc app::buildUI {} {
     ttk::frame .right.nb.vtab
     .right.nb add .right.nb.vtab -text "View"
 
-    mdviewer::create .right.nb.vtab.viewer \
+    mdstack::viewer::create .right.nb.vtab.viewer \
         -fontsize $::app::fontSize \
         -tablemode frame \
         -onlink app::onLink
@@ -324,7 +325,7 @@ proc app::buildUI {} {
     set ::app::viewerPath .right.nb.vtab.viewer
 
     # onhover is optional (only from mdviewer 0.3+)
-    catch {mdviewer::configure $::app::viewerPath -onhover app::onHover}
+    catch {mdstack::viewer::configure $::app::viewerPath -onhover app::onHover}
 
     # Frontmatter panel (Priority 11)
     ttk::frame .right.nb.vtab.meta
@@ -363,7 +364,7 @@ proc app::buildUI {} {
     bind . <Control-D> app::addBookmark
     bind . <Control-e> app::editCurrentFile
     bind . <Control-E> app::editCurrentFile
-    bind . <F1>        {app::openHelpPage kurzanleitung.md}
+    bind . <F1>        {app::openHelpPage en/quickstart.md}
     bind . <F3>        app::searchNext
     bind . <Shift-F3>  app::searchPrev
     bind . <F5>        app::reload
@@ -374,12 +375,12 @@ proc app::buildUI {} {
     bind . <Alt-Home>  app::goHome
 
     # History + Clipboard auf Viewer-Widget
-    set t [mdviewer::widget $::app::viewerPath]
+    set t [mdstack::viewer::widget $::app::viewerPath]
     mdhelp_history::init $t
     mdhelp_history::setCallback $t {apply {{file anchor} {
         app::openFile $file 0
         if {$anchor ne ""} {
-            mdviewer::gotoAnchor $::app::viewerPath $anchor
+            mdstack::viewer::gotoAnchor $::app::viewerPath $anchor
         } else {
             app::restoreScroll $file
         }
@@ -415,19 +416,91 @@ source [file join [file dirname [info script]] mdhelp_ui.tcl]
 # About dialog
 # ============================================================
 proc app::showAbout {} {
-    set version     "0.1"
-    set lastchanged "2026-03-04"
-    set modules "mdparser 0.2\n  mdmodel 0.1\n  mdviewer 0.3\n\
-  mdvalidator 0.1\n  mdeditorkit 0.2\n  mdoutline 0.1\n\
-  mdtheme 0.1\n  mdpdf 0.2\n  pdf4tcllib 0.2\n\
-  mdhelp_search 0.1\n  mdhelp_history 0.1\n\
-  mdhelp_clipboard 0.1\n  mdtext 0.1\n\
-  mdcontextmenu 0.1\n  mdindexgen 0.1"
+    set version     "0.2"
+    set lastchanged "2026-05-06"
+
+    # ============================================================
+    # Stack-Komponenten erkennen: Adapter vs. Legacy
+    # ============================================================
+
+    # mdpdf: Adapter wenn _mapOptions vorhanden, Legacy wenn _renderBlock vorhanden
+    if {[info commands ::mdstack::pdf::_mapOptions] ne ""} {
+        set mdpdfStatus "0.2 (Adapter -> docir-pdf)"
+    } elseif {[info commands ::mdstack::pdf::_renderBlock] ne ""} {
+        set mdpdfStatus "0.2 (Legacy, Standalone)"
+    } else {
+        set mdpdfStatus "0.2 (unbekannt)"
+    }
+
+    # mdhtml: Adapter wenn die DocIR-Pipeline genutzt wird
+    if {[info commands ::mdstack::html::_collectImageUrls] ne ""} {
+        set mdhtmlStatus "0.1 (Adapter -> docir-html, Asset-Copy)"
+    } elseif {[info commands ::mdstack::html::escapeHtml] ne ""} {
+        set mdhtmlStatus "0.1 (geladen)"
+    } else {
+        set mdhtmlStatus "0.1 (unbekannt)"
+    }
+
+    # docir-Pipeline: prüfe die einzelnen Pakete (docir-pdf, docir-html, etc.)
+    set docirParts {}
+    foreach {pkg label} {
+        docir-md-source "md-source"
+        docir-pdf       "pdf"
+        docir-html      "html"
+    } {
+        if {![catch {set v [package present $pkg]}]} {
+            lappend docirParts "$label $v"
+        }
+    }
+    if {[llength $docirParts] > 0} {
+        set docirInfo [join $docirParts ", "]
+    } else {
+        set docirInfo "nicht geladen"
+    }
+
+    # pdf4tcl-Stack: aktiv probieren (lazy-loaded vom mdpdf-Adapter erst
+    # beim ersten Export, daher hier vorab triggern)
+    set pdf4tclVer "nicht installiert"
+    if {![catch {package require pdf4tcl} v]} {
+        set pdf4tclVer $v
+    }
+    set pdf4tcllibVer "nicht installiert"
+    if {![catch {package require pdf4tcllib} v]} {
+        set pdf4tcllibVer $v
+    }
+
+    # ============================================================
+    # Modul-Liste (kompakt)
+    # ============================================================
+    set modules "  mdparser 0.2,  mdmodel 0.1,  mdviewer 0.3\n"
+    append modules "  mdvalidator 0.1,  mdeditorkit 0.2,  mdoutline 0.1\n"
+    append modules "  mdtheme 0.1,  mdtext 0.1,  mdcontextmenu 0.1\n"
+    append modules "  mdindexgen 0.1\n"
+    append modules "  mdhelp_search 0.1,  mdhelp_history 0.1,  mdhelp_clipboard 0.1"
     if {$::app::hasSpellcheck} {
         append modules "\n  mdspellcheck 0.1 ([mdspellcheck::lang])"
     }
-    tk_messageBox -icon info -title "About mdhelp 4" \
-        -message "mdhelp $version\nStand: $lastchanged\n\nMarkdown Help Viewer\n\nModule:\n  $modules\n\nTcl/Tk [info patchlevel]"
+
+    # ============================================================
+    # Dialog
+    # ============================================================
+    set msg "mdhelp $version  (Stand: $lastchanged)\n"
+    append msg "Markdown Help Viewer\n"
+    append msg "\n"
+    append msg "=== Stack-Komponenten ===\n"
+    append msg "mdpdf:   $mdpdfStatus\n"
+    append msg "mdhtml:  $mdhtmlStatus\n"
+    append msg "docir:   $docirInfo\n"
+    append msg "\n"
+    append msg "=== Backend ===\n"
+    append msg "pdf4tcl:    $pdf4tclVer\n"
+    append msg "pdf4tcllib: $pdf4tcllibVer\n"
+    append msg "Tcl/Tk:     [info patchlevel]\n"
+    append msg "\n"
+    append msg "=== Module ===\n"
+    append msg "$modules"
+
+    tk_messageBox -icon info -title "About mdhelp 4" -message $msg
 }
 
 proc app::openHelpPage {page} {
@@ -514,7 +587,7 @@ proc app::exportPdf {} {
     }
 
     if {[catch {
-        set pages [mdpdf::export $currentAst $outFile \
+        set pages [mdstack::pdf::export $currentAst $outFile \
             -title $title \
             -fontsize $::app::fontSize \
             -root [file dirname $currentFile]]
@@ -545,9 +618,10 @@ proc app::exportHtml {} {
     }
 
     if {[catch {
-        mdhtml::export $currentAst $outFile \
+        mdstack::html::export $currentAst $outFile \
             -title $title \
-            -toc 1
+            -toc 1 \
+            -root [file dirname $currentFile]
         set ::app::statusText "HTML exported: $outFile"
     } err]} {
         tk_messageBox -icon error -title "HTML Error" \
@@ -564,8 +638,8 @@ proc app::validateAst {} {
         tk_messageBox -icon info -message "No document loaded."
         return
     }
-    set normal [mdvalidator::report $currentAst]
-    set strict [mdvalidator::report $currentAst -strict]
+    set normal [mdstack::validator::report $currentAst]
+    set strict [mdstack::validator::report $currentAst -strict]
 
     set meta [dict get $currentAst meta]
     set nBlocks [llength [dict get $currentAst blocks]]
@@ -629,12 +703,12 @@ wm protocol . WM_DELETE_WINDOW app::quit
 
 # Fontgroesse aus Einstellungen anwenden
 if {$::app::fontSize != 11} {
-    mdviewer::setFontSize $::app::viewerPath $::app::fontSize
+    mdstack::viewer::setFontSize $::app::viewerPath $::app::fontSize
 }
 
 # Apply theme (after GUI build)
 if {$::app::theme ne "hell"} {
-    mdtheme::applyToViewer $::app::viewerPath
+    mdstack::theme::applyToViewer $::app::viewerPath
 }
 
 # Docs directory: command line > settings > default

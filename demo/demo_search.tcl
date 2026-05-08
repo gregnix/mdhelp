@@ -7,8 +7,7 @@
 package require Tk
 
 set scriptDir [file dirname [info script]]
-tcl::tm::path add [file join $scriptDir .. lib]
-
+::tcl::tm::path add [file join $scriptDir .. lib tm]
 package require mdhelp_search 0.1
 
 wm title . "mdhelp_search Demo"

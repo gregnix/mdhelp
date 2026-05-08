@@ -3,7 +3,6 @@
 #
 # Aufruf: tclsh test_mdindexgen.tcl
 
-::tcl::tm::path add [file join [file dirname [info script]] .. lib tm]
 package require mdindexgen 0.1
 
 set pass 0
@@ -59,8 +58,38 @@ proc setupTestDir {} {
 
 proc cleanupTestDir {} {
     upvar testDir testDir
-    if {[file exists $testDir]} {
-        file delete -force $testDir
+    if {![file exists $testDir]} return
+
+    # Erster Versuch: Standardweg.
+    if {![catch {file delete -force -- $testDir}]} return
+
+    # Fallback: manuell rekursieren. `file delete -force` versagt auf
+    # manchen Filesystemen / Tcl-Versionen mit
+    #   "illegal operation on a directory"
+    # bei nicht-leeren Subverzeichnissen. Gemeldet 2026-05-07 via
+    # zweite externe Code-Review.
+    rmTreeBestEffort $testDir
+}
+
+proc rmTreeBestEffort {path} {
+    if {![file exists $path] && ![file type $path] eq "link"} return
+    # Symlink: nur den Link entfernen, nicht das Ziel
+    if {![catch {file readlink $path}]} {
+        catch {file delete -- $path}
+        return
+    }
+    if {[file isdirectory $path]} {
+        foreach item [glob -nocomplain -directory $path -tails -- *] {
+            rmTreeBestEffort [file join $path $item]
+        }
+        # Versteckte Einträge (. und .. herausfiltern)
+        foreach item [glob -nocomplain -directory $path -tails -types hidden -- *] {
+            if {$item in {. ..}} continue
+            rmTreeBestEffort [file join $path $item]
+        }
+        catch {file delete -- $path}
+    } else {
+        catch {file delete -force -- $path}
     }
 }
 

@@ -10,7 +10,7 @@
 package require Tk
 
 set scriptDir [file dirname [file normalize [info script]]]
-tcl::tm::path add [file join $scriptDir .. vendors tm]
+::tcl::tm::path add [file join $scriptDir .. lib tm]
 
 package require mdhelp_pdf 0.3
 
@@ -176,9 +176,11 @@ proc doExportWidget {} {
 }
 
 proc doExportFile {} {
-    # Demo-MD in temp-Datei schreiben, dann exportFromFile aufrufen
-    set tmpMd [file join [file tempdir] "mdhelp_pdf_demo.md"]
-    set fd [open $tmpMd w]
+    # Demo-MD in temp-Datei schreiben, dann exportFromFile aufrufen.
+    # `file tempfile` ist multiversion-fähig (Tcl 8.6 und 9). Es öffnet
+    # gleich einen Schreib-Channel und liefert den Pfad in tmpMd.
+    # Hinweis: NICHT `file tempdir` benutzen — das gibt es nur in Tcl 9.
+    set fd [file tempfile tmpMd "mdhelp_pdf_demo"]
     fconfigure $fd -encoding utf-8
     puts $fd [.tw.t get 1.0 end-1c]
     close $fd

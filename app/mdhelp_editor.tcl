@@ -161,36 +161,36 @@ proc app::openInEditor {file} {
     pack $w.st -fill x -side bottom
     ttk::label $w.st.line -text "Line: 1" -width 12
     ttk::label $w.st.type -text "" -width 20
-    ttk::label $w.st.mod -text "" -width 15 -foreground [mdtheme::color status_error]
+    ttk::label $w.st.mod -text "" -width 15 -foreground [mdstack::theme::color status_error]
     pack $w.st.line $w.st.type $w.st.mod -side left -padx 5
 
     # --- mdeditorkit: Editor + Preview ---
     ttk::panedwindow $w.outer -orient horizontal
     pack $w.outer -fill both -expand 1
 
-    set kit [mdeditorkit::create $w.outer.kit \
+    set kit [mdstack::editorkit::create $w.outer.kit \
         -fontsize $::app::fontSize \
         -root [file dirname $file] \
         -debounce 400 \
         -onchange [list app::editorOnChange $w]]
 
     # Enable smart-editing features
-    set ed [mdeditorkit::editor $kit]
+    set ed [mdstack::editorkit::editor $kit]
     $ed enableFeature smartReturn
     $ed enableFeature indent
 
     # Outline panel (left, narrow)
-    set outline [mdoutline::create $w.outer.outline -editor $ed]
+    set outline [mdstack::outline::create $w.outer.outline -editor $ed]
 
     # Layout: Outline left, EditorKit right
     $w.outer add $outline -weight 0
     $w.outer add $kit -weight 1
 
     # Attach context menu
-    mdcontextmenu::attachToEditor $ed
+    mdstack::contextmenu::attachToEditor $ed
 
     # Attach spell checking (optional)
-    set t_ed [mdtext::_t $ed]
+    set t_ed [mdstack::text::_t $ed]
     if {$::app::hasSpellcheck} {
         mdspellcheck::attach $t_ed
     }
@@ -203,17 +203,17 @@ proc app::openInEditor {file} {
     set ::app::edFile($w) $file
 
     # Set text (triggers initial preview)
-    mdeditorkit::settext $kit $markdown
+    mdstack::editorkit::settext $kit $markdown
     $ed modified 0
 
     # Fill outline initially
-    mdoutline::refresh $outline
+    mdstack::outline::refresh $outline
 
     # Status update timer
     app::editorUpdateStatus $w
 
     # Bindings (on the tab frame)
-    set t_ed [mdtext::_t $ed]
+    set t_ed [mdstack::text::_t $ed]
     bind $t_ed <Control-s> [list app::editorSave $w $file]
     bind $t_ed <Control-S> [list app::editorSave $w $file]
     bind $t_ed <Control-z> [list app::editorUndo $w]
@@ -231,8 +231,8 @@ proc app::openInEditor {file} {
 proc app::editorUndo {w} {
     variable edKit
     if {![info exists edKit($w)]} return
-    set ed [mdeditorkit::editor $edKit($w)]
-    set t [mdtext::_t $ed]
+    set ed [mdstack::editorkit::editor $edKit($w)]
+    set t [mdstack::text::_t $ed]
     if {[catch {$t edit undo}]} {
         bell
     }
@@ -241,8 +241,8 @@ proc app::editorUndo {w} {
 proc app::editorRedo {w} {
     variable edKit
     if {![info exists edKit($w)]} return
-    set ed [mdeditorkit::editor $edKit($w)]
-    set t [mdtext::_t $ed]
+    set ed [mdstack::editorkit::editor $edKit($w)]
+    set t [mdstack::text::_t $ed]
     if {[catch {$t edit redo}]} {
         bell
     }
@@ -252,22 +252,22 @@ proc app::editorCmd {w cmd args} {
     # Forward format command to mdtext editor.
     variable edKit
     if {![info exists edKit($w)]} return
-    set ed [mdeditorkit::editor $edKit($w)]
+    set ed [mdstack::editorkit::editor $edKit($w)]
     $ed {*}$cmd {*}$args
 }
 
 proc app::editorSetMode {w mode} {
     variable edKit
     if {![info exists edKit($w)]} return
-    mdeditorkit::setmode $edKit($w) $mode
+    mdstack::editorkit::setmode $edKit($w) $mode
 }
 
 # TIP-700: Wrap selection with span markup
 proc app::editorSpanWrap {w cls} {
     variable edKit
     if {![info exists edKit($w)]} return
-    set ed [mdeditorkit::editor $edKit($w)]
-    set t [mdtext::_t $ed]
+    set ed [mdstack::editorkit::editor $edKit($w)]
+    set t [mdstack::text::_t $ed]
 
     set sel [$t tag ranges sel]
     if {[llength $sel] < 2} {
@@ -286,8 +286,8 @@ proc app::editorSpanWrap {w cls} {
 proc app::editorDivInsert {w cls} {
     variable edKit
     if {![info exists edKit($w)]} return
-    set ed [mdeditorkit::editor $edKit($w)]
-    set t [mdtext::_t $ed]
+    set ed [mdstack::editorkit::editor $edKit($w)]
+    set t [mdstack::text::_t $ed]
 
     set sel [$t tag ranges sel]
     if {[llength $sel] >= 2} {
@@ -307,8 +307,8 @@ proc app::editorDivInsert {w cls} {
 proc app::editorYamlInsert {w} {
     variable edKit
     if {![info exists edKit($w)]} return
-    set ed [mdeditorkit::editor $edKit($w)]
-    set t [mdtext::_t $ed]
+    set ed [mdstack::editorkit::editor $edKit($w)]
+    set t [mdstack::text::_t $ed]
 
     set template "---\ntitle: \nsection: n\nmanual-section: Tcl Built-In Commands\n---\n\n"
     $t insert 1.0 $template
@@ -325,7 +325,7 @@ proc app::editorOnChange {w args} {
     }
     # Update outline
     if {[info exists ::app::edOutline($w)]} {
-        after idle [list catch [list mdoutline::refresh $::app::edOutline($w)]]
+        after idle [list catch [list mdstack::outline::refresh $::app::edOutline($w)]]
     }
 }
 
@@ -333,7 +333,7 @@ proc app::editorUpdateStatus {w} {
     variable edKit
     if {![info exists edKit($w)] || ![winfo exists $w]} return
 
-    set ed [mdeditorkit::editor $edKit($w)]
+    set ed [mdstack::editorkit::editor $edKit($w)]
     if {![winfo exists $ed]} return
 
     # Line number
@@ -358,7 +358,7 @@ proc app::editorSave {w file} {
     variable edKit
     if {![info exists edKit($w)]} return
 
-    set markdown [mdeditorkit::gettext $edKit($w)]
+    set markdown [mdstack::editorkit::gettext $edKit($w)]
 
     if {[catch {
         set fh [open $file w]
@@ -408,8 +408,8 @@ proc app::editorDestroy {w} {
     if {$::app::hasSpellcheck} {
         variable edKit
         if {[info exists edKit($w)]} {
-            set ed [mdeditorkit::editor $edKit($w)]
-            catch { mdspellcheck::detach [mdtext::_t $ed] }
+            set ed [mdstack::editorkit::editor $edKit($w)]
+            catch { mdspellcheck::detach [mdstack::text::_t $ed] }
         }
     }
     catch {unset ::app::edDirty($w)}
@@ -434,7 +434,7 @@ proc app::editorToggleSpell {w} {
     variable edKit
     variable edSpell
     if {![info exists edKit($w)]} return
-    set t_ed [mdtext::_t [mdeditorkit::editor $edKit($w)]]
+    set t_ed [mdstack::text::_t [mdstack::editorkit::editor $edKit($w)]]
     if {$edSpell($w)} {
         mdspellcheck::enabled $t_ed 1
         mdspellcheck::checkAll $t_ed
@@ -448,7 +448,7 @@ proc app::editorSpellSilent {w} {
     if {![info exists edKit($w)]} return
     if {![winfo exists $w]} return
     if {!$::app::hasSpellcheck} return
-    set t_ed [mdtext::_t [mdeditorkit::editor $edKit($w)]]
+    set t_ed [mdstack::text::_t [mdstack::editorkit::editor $edKit($w)]]
     catch { mdspellcheck::checkAll $t_ed }
 }
 
@@ -457,7 +457,7 @@ proc app::editorSpellAll {w} {
     if {![info exists edKit($w)]} return
     if {![winfo exists $w]} return
     if {!$::app::hasSpellcheck} return
-    set t_ed [mdtext::_t [mdeditorkit::editor $edKit($w)]]
+    set t_ed [mdstack::text::_t [mdstack::editorkit::editor $edKit($w)]]
     mdspellcheck::enabled $t_ed 1
     catch {set ::app::edSpell($w) 1}
     mdspellcheck::checkAll $t_ed

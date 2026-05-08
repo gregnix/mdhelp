@@ -19,7 +19,7 @@ proc app::toggleSearch {} {
         pack forget .searchbar
         app::hideSearchResults
         set searchVisible 0
-        mdhelp_search::clear [mdviewer::widget $::app::viewerPath]
+        mdhelp_search::clear [mdstack::viewer::widget $::app::viewerPath]
         set ::app::searchStatus ""
     } else {
         pack .searchbar -after .toolbar -fill x -padx 2 -pady 2
@@ -40,7 +40,7 @@ proc app::doSearch {} {
 
 proc app::doSearchPage {} {
     app::hideSearchResults
-    set t [mdviewer::widget $::app::viewerPath]
+    set t [mdstack::viewer::widget $::app::viewerPath]
     set n [mdhelp_search::find $t $::app::searchPattern]
     if {$n > 0} {
         set idx [expr {[mdhelp_search::current $t] + 1}]
@@ -63,7 +63,7 @@ proc app::doSearchGlobal {} {
     if {$pattern eq ""} return
 
     # Reset widget search
-    mdhelp_search::clear [mdviewer::widget $::app::viewerPath]
+    mdhelp_search::clear [mdstack::viewer::widget $::app::viewerPath]
 
     # Search all files
     set results [mdhelp_search::searchAll $docsRoot $pattern]
@@ -118,13 +118,13 @@ proc app::onResultSelect {} {
         app::openFile $file 1
         # Nach dem Oeffnen: Seitensuche ausfuehren
         # damit die Treffer im Viewer hervorgehoben werden
-        set t [mdviewer::widget $::app::viewerPath]
+        set t [mdstack::viewer::widget $::app::viewerPath]
         mdhelp_search::find $t $::app::searchPattern
     }
 }
 
 proc app::searchNext {} {
-    set t [mdviewer::widget $::app::viewerPath]
+    set t [mdstack::viewer::widget $::app::viewerPath]
     mdhelp_search::next $t
     set n [mdhelp_search::count $t]
     if {$n > 0} {
@@ -134,7 +134,7 @@ proc app::searchNext {} {
 }
 
 proc app::searchPrev {} {
-    set t [mdviewer::widget $::app::viewerPath]
+    set t [mdstack::viewer::widget $::app::viewerPath]
     mdhelp_search::prev $t
     set n [mdhelp_search::count $t]
     if {$n > 0} {

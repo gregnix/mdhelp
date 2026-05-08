@@ -5,9 +5,12 @@ Standalone-Binaries für Linux und Windows erzeugen.
 ## Voraussetzungen
 
 - `tclsh` 8.6+ (Linux oder Windows mit BAWT)
+- **Modul-Setup wie in `README.md` beschrieben** — `~/lib/tcltk/<repo>/`
+  oder Sibling-Layout. `build.tcl` greift auf die gleichen Pfade zu wie
+  der Laufzeit-Bootstrap und kopiert von dort ins VFS.
 - Build-Runtimes in `../runtimes/` (ein Verzeichnis über dem Projekt) —
   **einmalig manuell beschaffen**, wird von allen Projekten gemeinsam genutzt.
-  Siehe `../runtimes/README.md` oder `BUILD.md` unten für Setup-Anleitung.
+  Siehe Setup-Anleitung unten.
 
 ## Schnellstart
 
@@ -45,15 +48,17 @@ Das Windows-Binary wird **cross-compiled** auf Linux erzeugt.
 ```
 mdhelp.vfs/
   main.tcl                   # Einstiegspunkt
-  mdhelp_app.tcl             # App (aus app/mdhelp.tcl)
+  mdhelp_app.tcl             # App (aus app/mdhelp.tcl, Bootstrap-Zeilen entfernt)
   mdhelp_editor.tcl          # (aus app/)
   mdhelp_nav.tcl
   mdhelp_ui.tcl
   mdhelp_search_ui.tcl
   mdhelp_settings.tcl
   applib/                    # mdhelp-eigene Module (aus lib/tm/)
-  apptm/                     # Vendor-Module (aus vendors/tm/)
-  vendors/pkg/               # Tcl Packages, z.B. pdf4tcl (aus vendors/pkg/)
+  apptm/                     # docir + mdstack + pdf4tcllib (aus User-Install
+                             # ~/lib/tcltk/<repo>/, ueber den mdhelp-bootstrap
+                             # ermittelt)
+  vendors/pkg/pdf4tcl0.9.4.x/  # 3rd-party pdf4tcl (aus ~/lib/tcltk/pdf4tcl/)
   docs/                      # Eingebettete Dokumentation
 ```
 

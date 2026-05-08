@@ -4,8 +4,7 @@
 # Prueft Parser-Ausgabe gegen erwartete AST-Strukturen.
 # Aufruf: tclsh test_commonmark.tcl
 
-::tcl::tm::path add [file join [file dirname [info script]] .. vendors tm]
-package require mdparser 0.2
+package require mdstack::parser 0.2
 
 set pass 0
 set fail 0
@@ -24,7 +23,7 @@ proc assert {name cond} {
 }
 
 proc blockTypes {md} {
-    set ast [mdparser::parse $md]
+    set ast [mdstack::parser::parse $md]
     set types {}
     foreach b [dict get $ast blocks] {
         lappend types [dict get $b type]
@@ -33,7 +32,7 @@ proc blockTypes {md} {
 }
 
 proc inlineTypes {md} {
-    set ast [mdparser::parse $md]
+    set ast [mdstack::parser::parse $md]
     set block [lindex [dict get $ast blocks] 0]
     if {![dict exists $block content]} { return {} }
     set types {}
@@ -44,13 +43,13 @@ proc inlineTypes {md} {
 }
 
 proc headingLevel {md} {
-    set ast [mdparser::parse $md]
+    set ast [mdstack::parser::parse $md]
     set block [lindex [dict get $ast blocks] 0]
     dict get $block level
 }
 
 proc headingText {md} {
-    set ast [mdparser::parse $md]
+    set ast [mdstack::parser::parse $md]
     set block [lindex [dict get $ast blocks] 0]
     set txt ""
     foreach i [dict get $block content] {
@@ -62,20 +61,20 @@ proc headingText {md} {
 }
 
 proc codeInfo {md} {
-    set ast [mdparser::parse $md]
+    set ast [mdstack::parser::parse $md]
     set block [lindex [dict get $ast blocks] 0]
     list [dict get $block language] [string trim [dict get $block text]]
 }
 
 proc linkUrl {md} {
-    set ast [mdparser::parse $md]
+    set ast [mdstack::parser::parse $md]
     set block [lindex [dict get $ast blocks] 0]
     set link [lindex [dict get $block content] 0]
     dict get $link url
 }
 
 proc metaKey {md key} {
-    set ast [mdparser::parse $md]
+    set ast [mdstack::parser::parse $md]
     if {[dict exists [dict get $ast meta] $key]} {
         return [dict get [dict get $ast meta] $key]
     }
@@ -159,7 +158,7 @@ assert "table"       {[blockTypes "| A | B |\n|---|---|\n| 1 | 2 |"] eq {table}}
 # -- 13. Hard Line Breaks --
 puts "--- Line Breaks ---"
 set md "line one  \nline two"
-set ast [mdparser::parse $md]
+set ast [mdstack::parser::parse $md]
 set para [lindex [dict get $ast blocks] 0]
 set types {}
 foreach i [dict get $para content] { lappend types [dict get $i type] }
@@ -173,7 +172,7 @@ assert "esc-bracket" {[inlineTypes "\\\[not link\\\]"] eq {text text text}}
 # -- 15. Reference Links --
 puts "--- Reference Links ---"
 set md "\[link text\]\[ref\]\n\n\[ref\]: http://example.com"
-set ast [mdparser::parse $md]
+set ast [mdstack::parser::parse $md]
 set para [lindex [dict get $ast blocks] 0]
 set first [lindex [dict get $para content] 0]
 assert "reflink"     {[dict get $first type] eq "link"}
@@ -195,7 +194,7 @@ assert "div"         {[blockTypes "::: info\ntext\n:::"] eq {div}}
 # -- 19. Footnotes --
 puts "--- Footnotes ---"
 set md "Text\[^1\]\n\n\[^1\]: Fussnote."
-set ast [mdparser::parse $md]
+set ast [mdstack::parser::parse $md]
 set types [blockTypes $md]
 assert "fn-section"  {"footnote_section" in $types}
 set para [lindex [dict get $ast blocks] 0]
@@ -213,14 +212,14 @@ assert "standalone-img" {[blockTypes "!\[alt\](image.png)"] eq {image}}
 
 # -- 22. Nested Emphasis Edge Cases --
 puts "--- Nested Emphasis ---"
-set ast [mdparser::parse "**bold *and italic* text**"]
+set ast [mdstack::parser::parse "**bold *and italic* text**"]
 set para [lindex [dict get $ast blocks] 0]
 set strong [lindex [dict get $para content] 0]
 assert "nested-em-in-strong" {[dict get $strong type] eq "strong"}
 
 # -- 23. Link in Emphasis --
 puts "--- Link in Emphasis ---"
-set ast [mdparser::parse "*\[link\](url)*"]
+set ast [mdstack::parser::parse "*\[link\](url)*"]
 set para [lindex [dict get $ast blocks] 0]
 set em [lindex [dict get $para content] 0]
 assert "link-in-em" {[dict get $em type] eq "emphasis"}
@@ -258,14 +257,14 @@ puts "--- Emphasis Edge Cases ---"
 # Intra-word: mid*word*mid should still match
 assert "em-intra"     {"emphasis" in [inlineTypes "mid*word*end"]}
 # Nested bold in italic
-set ast [mdparser::parse "*italic **bold** text*"]
+set ast [mdstack::parser::parse "*italic **bold** text*"]
 set para [lindex [dict get $ast blocks] 0]
 set em [lindex [dict get $para content] 0]
 assert "bold-in-italic" {[dict get $em type] eq "emphasis"}
 
 # -- 29. Code Span Edge Cases --
 puts "--- Code Span Edge Cases ---"
-set ast [mdparser::parse "Use ``foo `bar` baz`` here"]
+set ast [mdstack::parser::parse "Use ``foo `bar` baz`` here"]
 set para [lindex [dict get $ast blocks] 0]
 set code [lindex [dict get $para content] 1]
 assert "dbl-backtick-inner" {[dict get $code type] eq "inline_code"}
@@ -273,14 +272,14 @@ assert "dbl-backtick-val"   {[dict get $code value] eq "foo `bar` baz"}
 
 # -- 30. Link Title --
 puts "--- Link Title ---"
-set ast [mdparser::parse "\[text\](url \"My Title\")"]
+set ast [mdstack::parser::parse "\[text\](url \"My Title\")"]
 set para [lindex [dict get $ast blocks] 0]
 set link [lindex [dict get $para content] 0]
 assert "link-title"    {[dict get $link title] eq "My Title"}
 
 # -- 31. Image Title --
 puts "--- Image Title ---"
-set ast [mdparser::parse "text !\[alt\](img.png \"caption\") more"]
+set ast [mdstack::parser::parse "text !\[alt\](img.png \"caption\") more"]
 set para [lindex [dict get $ast blocks] 0]
 set img {}
 foreach i [dict get $para content] {
@@ -291,7 +290,7 @@ assert "img-title"     {$img ne "" && [dict get $img title] eq "caption"}
 # -- 32. Nested Blockquotes --
 puts "--- Nested Blockquotes ---"
 set md "> level 1\n>> level 2\n>>> level 3"
-set ast [mdparser::parse $md]
+set ast [mdstack::parser::parse $md]
 set bq1 [lindex [dict get $ast blocks] 0]
 assert "bq-outer"      {[dict get $bq1 type] eq "blockquote"}
 # Inner structure depends on parser nesting
@@ -299,7 +298,7 @@ assert "bq-has-blocks"  {[dict exists $bq1 blocks]}
 
 # -- 33. Ordered List Start Number --
 puts "--- Ordered List Start ---"
-set ast [mdparser::parse "1. first\n2. second\n3. third"]
+set ast [mdstack::parser::parse "1. first\n2. second\n3. third"]
 set lst [lindex [dict get $ast blocks] 0]
 assert "ol-type"       {[dict get $lst type] eq "list"}
 assert "ol-items"      {[llength [dict get $lst items]] == 3}
@@ -307,7 +306,7 @@ assert "ol-items"      {[llength [dict get $lst items]] == 3}
 # -- 34. Mixed List --
 puts "--- Mixed Content ---"
 set md "- item with **bold** and `code`"
-set ast [mdparser::parse $md]
+set ast [mdstack::parser::parse $md]
 set lst [lindex [dict get $ast blocks] 0]
 set item [lindex [dict get $lst items] 0]
 set itypes {}
@@ -333,7 +332,7 @@ assert "consec-headings" {[blockTypes "# One\n## Two\n### Three"] eq {heading he
 # -- 37. Reference Image --
 puts "--- Reference Images ---"
 set md "!\[photo\]\[img1\]\n\n\[img1\]: /path/to/image.png"
-set ast [mdparser::parse $md]
+set ast [mdstack::parser::parse $md]
 set para [lindex [dict get $ast blocks] 0]
 set first [lindex [dict get $para content] 0]
 assert "ref-image"     {[dict get $first type] eq "image"}
@@ -342,7 +341,7 @@ assert "ref-image-url" {[dict get $first url] eq "/path/to/image.png"}
 # -- 38. Multiple Footnotes --
 puts "--- Multiple Footnotes ---"
 set md "A\[^a\] and B\[^b\].\n\n\[^a\]: Alpha\n\[^b\]: Beta"
-set ast [mdparser::parse $md]
+set ast [mdstack::parser::parse $md]
 set fnsec {}
 foreach b [dict get $ast blocks] {
     if {[dict get $b type] eq "footnote_section"} { set fnsec $b; break }
@@ -353,7 +352,7 @@ assert "multi-fn-count" {[llength [dict get $fnsec footnotes]] == 2}
 # -- 39. Multiline Footnote --
 puts "--- Multiline Footnote ---"
 set md "Text\[^ml\].\n\n\[^ml\]: First line\n  second line\n  third line"
-set ast [mdparser::parse $md]
+set ast [mdstack::parser::parse $md]
 set fnsec {}
 foreach b [dict get $ast blocks] {
     if {[dict get $b type] eq "footnote_section"} { set fnsec $b; break }
@@ -368,7 +367,7 @@ assert "ml-fn-text"    {[string match "*second*" $fnText]}
 # -- 40. Task Lists --
 puts "--- Task Lists ---"
 set md "- \[ \] unchecked\n- \[x\] checked"
-set ast [mdparser::parse $md]
+set ast [mdstack::parser::parse $md]
 set lst [lindex [dict get $ast blocks] 0]
 assert "task-list" {[dict get $lst type] eq "list"}
 

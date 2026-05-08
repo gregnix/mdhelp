@@ -31,7 +31,7 @@ Welcome to **mdhelp** -- the Markdown Help Viewer with integrated editor.
 
 ---
 
-**Version:** 0.1 (2026-04-12) | **Tcl/Tk:** 8.6+ / 9.x
+**Version:** 0.2 (2026-05-06) | **Tcl/Tk:** 8.6+ / 9.x
 
 
 <!-- mdindexgen:begin -->

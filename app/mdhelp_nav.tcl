@@ -79,7 +79,7 @@ proc app::openFile {file {pushHistory 1}} {
 
     # Scroll-Position des aktuellen Dokuments speichern
     if {$currentFile ne ""} {
-        set t [mdviewer::widget $::app::viewerPath]
+        set t [mdstack::viewer::widget $::app::viewerPath]
         set scrollPos($currentFile) [lindex [$t yview] 0]
     }
 
@@ -96,12 +96,12 @@ proc app::openFile {file {pushHistory 1}} {
     close $fh
 
     # Parsen + Rendern
-    set tokens [mdparser::parse $markdown]
-    set currentDoc [mdmodel::new $tokens]
-    set currentAst [mdmodel::ast $currentDoc]
+    set tokens [mdstack::parser::parse $markdown]
+    set currentDoc [mdstack::model::new $tokens]
+    set currentAst [mdstack::model::ast $currentDoc]
 
-    mdviewer::configure $::app::viewerPath -root [file dirname $file]
-    mdviewer::render $::app::viewerPath $currentAst
+    mdstack::viewer::configure $::app::viewerPath -root [file dirname $file]
+    mdstack::viewer::render $::app::viewerPath $currentAst
 
     # TIP-700-Styling (Span-Farben + Div-Hintergruende)
     app::applyTip700Styling
@@ -110,12 +110,12 @@ proc app::openFile {file {pushHistory 1}} {
 
     # History
     if {$pushHistory} {
-        set t [mdviewer::widget $::app::viewerPath]
+        set t [mdstack::viewer::widget $::app::viewerPath]
         mdhelp_history::push $t $file
     }
 
     # Reset search
-    mdhelp_search::clear [mdviewer::widget $::app::viewerPath]
+    mdhelp_search::clear [mdstack::viewer::widget $::app::viewerPath]
     set ::app::searchStatus ""
 
     # Update UI
@@ -135,7 +135,7 @@ proc app::onLink {url} {
     variable docsRoot
 
     # Open external URLs in browser
-    if {[mdviewer::isAbsUrl $url]} {
+    if {[mdstack::viewer::isAbsUrl $url]} {
         app::openExternal $url
         return
     }
@@ -147,7 +147,7 @@ proc app::onLink {url} {
         set anchor $anchorPart
     } elseif {[string index $url 0] eq "#"} {
         # Pure anchor link: just jump
-        mdviewer::gotoAnchor $::app::viewerPath [string range $url 1 end]
+        mdstack::viewer::gotoAnchor $::app::viewerPath [string range $url 1 end]
         return
     }
 
@@ -158,7 +158,7 @@ proc app::onLink {url} {
     if {[file exists $target]} {
         app::openFile $target 1
         if {$anchor ne ""} {
-            mdviewer::gotoAnchor $::app::viewerPath $anchor
+            mdstack::viewer::gotoAnchor $::app::viewerPath $anchor
         }
     } else {
         set ::app::statusText "Link target not found: $url"
@@ -167,14 +167,14 @@ proc app::onLink {url} {
 
 
 proc app::goBack {} {
-    set t [mdviewer::widget $::app::viewerPath]
+    set t [mdstack::viewer::widget $::app::viewerPath]
     mdhelp_history::back $t
     app::updateButtons
 }
 
 
 proc app::goForward {} {
-    set t [mdviewer::widget $::app::viewerPath]
+    set t [mdstack::viewer::widget $::app::viewerPath]
     mdhelp_history::forward $t
     app::updateButtons
 }
@@ -235,7 +235,7 @@ proc app::reload {} {
     if {$currentFile eq "" || ![file exists $currentFile]} return
 
     # Scroll-Position merken
-    set t [mdviewer::widget $::app::viewerPath]
+    set t [mdstack::viewer::widget $::app::viewerPath]
     set ypos [lindex [$t yview] 0]
 
     app::openFile $currentFile 0
@@ -306,7 +306,7 @@ proc app::restoreScroll {file} {
     variable scrollPos
     set file [file normalize $file]
     if {[info exists scrollPos($file)]} {
-        set t [mdviewer::widget $::app::viewerPath]
+        set t [mdstack::viewer::widget $::app::viewerPath]
         $t yview moveto $scrollPos($file)
     }
 }

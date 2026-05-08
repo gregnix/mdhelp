@@ -237,7 +237,7 @@ Vertikale Linien wurden erst nach allen Zeilen gezeichnet mit
 Koordinaten. Header wurde auf Folgeseiten nicht wiederholt.
 
 **Fix in mdpdf-0.2.tm:** Drei neue Procs:
-`mdpdf::_drawTableHeader`, `mdpdf::_drawTableVLines`, `mdpdf::_tablePageBreak`.
+`mdstack::pdf::_drawTableHeader`, `mdstack::pdf::_drawTableVLines`, `mdstack::pdf::_tablePageBreak`.
 `segTopY` trackt den Segmentanfang auf der aktuellen Seite.
 Beim Seitenumbruch: Segment abschliessen (untere Linie + vertikale Linien),
 neue Seite starten, Header wiederholen, `segTopY` zuruecksetzen.

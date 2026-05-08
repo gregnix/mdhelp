@@ -15,7 +15,7 @@ proc app::updateToc {} {
 
     if {$currentDoc eq ""} return
 
-    foreach h [mdmodel::headings $currentDoc] {
+    foreach h [mdstack::model::headings $currentDoc] {
         set level  [dict get $h level]
         set text   [dict get $h text]
         set anchor [dict get $h anchor]
@@ -34,7 +34,7 @@ proc app::onTocSelect {} {
     set vals [.left.toc item $sel -values]
     set anchor [lindex $vals 0]
     if {$anchor ne ""} {
-        mdviewer::gotoAnchor $::app::viewerPath $anchor
+        mdstack::viewer::gotoAnchor $::app::viewerPath $anchor
     }
 }
 
@@ -75,7 +75,7 @@ proc app::_relPath {file root} {
 # UI-Updates
 # ============================================================
 proc app::updateButtons {} {
-    set t [mdviewer::widget $::app::viewerPath]
+    set t [mdstack::viewer::widget $::app::viewerPath]
 
     if {[mdhelp_history::canBack $t]} {
         .toolbar.back state !disabled
@@ -157,10 +157,10 @@ proc app::updateMetaPanel {} {
 proc app::setTheme {name} {
     variable theme
     set theme $name
-    mdtheme::activate $name
+    mdstack::theme::activate $name
 
     # Update viewer
-    mdtheme::applyToViewer $::app::viewerPath
+    mdstack::theme::applyToViewer $::app::viewerPath
     app::applyTip700Styling
 
     # Seite neu rendern damit alle Tags stimmen
@@ -173,7 +173,7 @@ proc app::setTheme {name} {
 
 proc app::applyTip700Styling {} {
     variable fontSize
-    set t [mdviewer::widget $::app::viewerPath]
+    set t [mdstack::viewer::widget $::app::viewerPath]
 
     # Span-Klassen: Farben aus Theme
     foreach {cls styleType} {
@@ -182,7 +182,7 @@ proc app::applyTip700Styling {} {
         ins italic  ccmd bold  cargs italic  ret {}
     } {
         set tag "span_${cls}"
-        set fg [mdtheme::color "span_${cls}"]
+        set fg [mdstack::theme::color "span_${cls}"]
         if {$styleType ne ""} {
             $t tag configure $tag -foreground $fg \
                 -font [list {} $fontSize $styleType]
@@ -194,7 +194,7 @@ proc app::applyTip700Styling {} {
 
     # Div-Klassen: Hintergrundfarben aus Theme
     foreach cls {synopsis example arguments note warning} {
-        set bg [mdtheme::color "div_${cls}"]
+        set bg [mdstack::theme::color "div_${cls}"]
         $t tag configure "div_${cls}" -background $bg \
             -lmargin1 12 -lmargin2 12 -rmargin 12 \
             -spacing1 4 -spacing3 4
@@ -210,7 +210,7 @@ proc app::changeFontSize {delta} {
     if {$newSize < 8 || $newSize > 24} return
 
     set fontSize $newSize
-    mdviewer::setFontSize $::app::viewerPath $newSize
+    mdstack::viewer::setFontSize $::app::viewerPath $newSize
     set ::app::statusText "Font size: ${newSize}pt"
 }
 

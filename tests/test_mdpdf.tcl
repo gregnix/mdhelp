@@ -4,15 +4,9 @@
 # Generiert PDFs und prueft: Dateigroesse, PDF-Header, Seitenzahl.
 # Aufruf: tclsh test_mdpdf.tcl
 
-::tcl::tm::path add [file join [file dirname [info script]] .. vendors tm]
-::tcl::tm::path add [file join [file dirname [info script]] .. vendors pkg]
-
-# pdf4tcl aus pkg laden
-lappend auto_path [file join [file dirname [info script]] .. vendors pkg]
 package require pdf4tcl
-
-package require mdparser 0.2
-package require mdpdf 0.2
+package require mdstack::parser 0.2
+package require mdstack::pdf 0.2
 
 set pass 0
 set fail 0
@@ -40,8 +34,8 @@ proc pdfFile {name} {
 proc exportMd {name md args} {
     global tmpDir
     set outFile [pdfFile $name]
-    set ast [mdparser::parse $md]
-    mdpdf::export $ast $outFile {*}$args
+    set ast [mdstack::parser::parse $md]
+    mdstack::pdf::export $ast $outFile {*}$args
     return $outFile
 }
 

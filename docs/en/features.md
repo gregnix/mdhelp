@@ -138,9 +138,31 @@ checkbox toggle), context menu, three modes (split/editor/preview).
 
 ## PDF Export
 
-Exports the current document as PDF with headings, tables, images,
-page numbers, page breaks before H1/H2, Unicode sanitization and
-emoji fallbacks (via pdf4tcllib).
+Exports the current document as PDF using the **DocIR pipeline**
+(since 2026-05). Features:
+
+- TrueType fonts embedded (DejaVu) — full Unicode/umlauts support
+- **Per-inline styling**: bold, italic, code, strike-through render
+  with proper font switching (not flattened to plain text)
+- **Clickable hyperlinks** as PDF link annotations
+- **Block images** embedded as PNG/JPEG XObjects, with relative
+  paths resolved against the markdown file's directory
+- Theme-colored code-block backgrounds and link colors
+- Configurable page header/footer with `%p` page-number substitution
+- Headings, tables, lists, code blocks, blockquotes, footnotes
+
+See [PDF Export Guide](guides/pdf-export.md) for details.
+
+## HTML Export
+
+Exports the current document as a stand-alone HTML file. Since
+2026-05, **referenced images are automatically copied** to the
+output directory along with the HTML — the export produces a
+portable bundle ready to open, share, or serve.
+
+External URLs (`https://...`) are left as-is. Sub-directory
+structure is preserved. See [HTML Export Guide](guides/html-export.md)
+for details.
 
 ## AST Validation
 

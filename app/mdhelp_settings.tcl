@@ -78,9 +78,9 @@ proc app::loadSettings {} {
                 bookmarks  { set bookmarks $val }
                 recentDirs { set recentDirs $val }
                 theme      {
-                    if {$val in [mdtheme::names]} {
+                    if {$val in [mdstack::theme::names]} {
                         set theme $val
-                        mdtheme::activate $val
+                        mdstack::theme::activate $val
                     }
                 }
             }

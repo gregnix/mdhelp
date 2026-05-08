@@ -28,12 +28,9 @@
 #   -debug     0        Debug-Ausgaben
 
 
-# vendors/tm Pfad hinzufuegen (pdf4tcllib)
-set _vendorDir [file normalize [file join [file dirname [info script]] .. vendors tm]]
-if {[file isdirectory $_vendorDir]} {
-    tcl::tm::path add $_vendorDir
-}
-unset _vendorDir
+# pdf4tcl + pdf4tcllib werden ueber den mdhelp-bootstrap geladen
+# (lib/bootstrap.tcl). Wenn dieses Modul gesourct wird, muss bootstrap
+# vorher gelaufen sein.
 
 package require pdf4tcl
 package require pdf4tcllib 0.1

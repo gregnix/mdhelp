@@ -3,9 +3,8 @@
 #
 # Aufruf: tclsh test_mdmodel.tcl
 
-::tcl::tm::path add [file join [file dirname [info script]] .. vendors tm]
-package require mdparser 0.2
-package require mdmodel 0.1
+package require mdstack::parser 0.2
+package require mdstack::model 0.1
 
 set pass 0
 set fail 0
@@ -31,21 +30,21 @@ puts "--- Model erstellen ---"
 
 set md "---\ntitle: Test\nversion: 1.0\n---\n\n# Kapitel 1\n\nText.\n\n## Abschnitt 1.1\n\nMehr Text.\n\n# Kapitel 2\n\nNoch mehr.\n\n### Tief verschachtelt"
 
-set ast [mdparser::parse $md]
-set doc [mdmodel::new $ast]
+set ast [mdstack::parser::parse $md]
+set doc [mdstack::model::new $ast]
 
 assert "model-created"  {$doc ne ""}
-assert "model-ast"      {[mdmodel::ast $doc] ne ""}
+assert "model-ast"      {[mdstack::model::ast $doc] ne ""}
 
 # -- 2. Meta --
 puts "--- Meta ---"
-set meta [mdmodel::meta $doc]
+set meta [mdstack::model::meta $doc]
 assert "meta-title"     {[dict get $meta title] eq "Test"}
 assert "meta-version"   {[dict get $meta version] eq "1.0"}
 
 # -- 3. Headings / TOC --
 puts "--- Headings ---"
-set headings [mdmodel::headings $doc]
+set headings [mdstack::model::headings $doc]
 assert "heading-count"  {[llength $headings] == 4}
 
 set h1 [lindex $headings 0]
@@ -66,45 +65,45 @@ assert "h4-text"        {[dict get $h4 text] eq "Tief verschachtelt"}
 
 # -- 4. TOC --
 puts "--- TOC ---"
-set toc [mdmodel::toc $doc]
+set toc [mdstack::model::toc $doc]
 assert "toc-count"      {[llength $toc] == 4}
 
 # -- 5. Anchors --
 puts "--- Anchors ---"
-set anchors [mdmodel::anchors $doc]
+set anchors [mdstack::model::anchors $doc]
 assert "anchor-k1"      {[dict exists $anchors "kapitel-1"]}
 assert "anchor-a11"     {[dict exists $anchors "abschnitt-1-1"]}
 
 # -- 6. Find --
 puts "--- Find ---"
-set results [mdmodel::find $doc "Text"]
+set results [mdstack::model::find $doc "Text"]
 assert "find-text"      {[llength $results] > 0}
 
-set results2 [mdmodel::find $doc "NICHT_VORHANDEN_XYZ"]
+set results2 [mdstack::model::find $doc "NICHT_VORHANDEN_XYZ"]
 assert "find-none"      {[llength $results2] == 0}
 
 # -- 7. Dokument ohne Meta --
 puts "--- Ohne Meta ---"
 set md2 "# Einfach\n\nNur Text."
-set ast2 [mdparser::parse $md2]
-set doc2 [mdmodel::new $ast2]
-set meta2 [mdmodel::meta $doc2]
+set ast2 [mdstack::parser::parse $md2]
+set doc2 [mdstack::model::new $ast2]
+set meta2 [mdstack::model::meta $doc2]
 assert "no-meta"        {[llength [dict keys $meta2]] == 0}
 
 # -- 8. Leeres Dokument --
 puts "--- Leeres Dokument ---"
 set md3 ""
-set ast3 [mdparser::parse $md3]
-set doc3 [mdmodel::new $ast3]
-set headings3 [mdmodel::headings $doc3]
+set ast3 [mdstack::parser::parse $md3]
+set doc3 [mdstack::model::new $ast3]
+set headings3 [mdstack::model::headings $doc3]
 assert "empty-headings"  {[llength $headings3] == 0}
 
 # -- 9. Heading mit Inline-Formatting --
 puts "--- Heading mit Formatting ---"
 set md4 "# **Bold** and *italic* title"
-set ast4 [mdparser::parse $md4]
-set doc4 [mdmodel::new $ast4]
-set h [lindex [mdmodel::headings $doc4] 0]
+set ast4 [mdstack::parser::parse $md4]
+set doc4 [mdstack::model::new $ast4]
+set h [lindex [mdstack::model::headings $doc4] 0]
 assert "fmt-heading"     {[string match "*Bold*" [dict get $h text]]}
 assert "fmt-heading-clean" {![string match "*\\**" [dict get $h text]]}
 

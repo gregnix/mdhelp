@@ -12,11 +12,8 @@
 #
 # Aufruf: tclsh test_pdf_features.tcl
 
-::tcl::tm::path add [file join [file dirname [info script]] .. vendors tm]
-lappend ::auto_path [file join [file dirname [info script]] .. vendors pkg]
-
-package require mdparser 0.2
-package require mdpdf 0.2
+package require mdstack::parser 0.2
+package require mdstack::pdf 0.2
 
 set outDir [file join [file dirname [info script]] .. pdf_test]
 if {![file exists $outDir]} { file mkdir $outDir }
@@ -31,8 +28,8 @@ proc testPdf {name md args} {
     set ok 1
     set err ""
     if {[catch {
-        set ast [mdparser::parse $md]
-        mdpdf::export $ast $outFile {*}$args
+        set ast [mdstack::parser::parse $md]
+        mdstack::pdf::export $ast $outFile {*}$args
     } msg]} {
         set ok 0
         set err $msg

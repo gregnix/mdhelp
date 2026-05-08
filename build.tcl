@@ -172,10 +172,15 @@ source [file join $appDir mdhelp_app.tcl]
         set start $i
         break
     }
-    # Entwicklungs-Pfad-Zeilen entfernen
+    # Entwicklungs-Pfad-Zeilen entfernen — im Starpack sind alle Module
+    # bereits im VFS, der Bootstrap-Mechanismus ist dort nicht noetig.
+    # Im Starpack sind alle Module bereits im VFS — die Zeilen aus dem
+    # Entwicklungs-Setup (set appDir / tcl::tm::path add lib/tm) sind
+    # dort weder gewollt noch funktionierend, also rausfiltern.
     set appLines {}
     foreach line [lrange $lines $start end] {
         if {[string match "set appDir*" $line]} continue
+        if {[string match "::tcl::tm::path*" $line]} continue
         if {[string match "tcl::tm::path*" $line]} continue
         lappend appLines $line
     }
@@ -196,11 +201,63 @@ source [file join $appDir mdhelp_app.tcl]
     }
 
     # --- Module ---
+    # mdhelp-eigene Module (lib/tm/) → applib/
     foreach f [glob -nocomplain -directory [file join $scriptDir lib tm] *.tm] {
         file copy -force $f [file join $vfsDir applib [file tail $f]]
     }
-    foreach f [glob -nocomplain -directory [file join $scriptDir vendors tm] *.tm] {
-        file copy -force $f [file join $vfsDir apptm [file tail $f]]
+
+    # Externe Module (docir, mdstack, pdf4tcllib) → apptm/
+    # Pfade kommen aus Umgebungsvariablen. Diese MUESSEN gesetzt sein —
+    # build.tcl fail-fast statt mit leerem VFS weiterzumachen.
+    set repoEnv [dict create \
+        docir       DOCIR_HOME \
+        mdstack     MDSTACK_HOME \
+        pdf4tcllib  PDF4TCLLIB_HOME]
+    set repoSubdir [dict create \
+        docir       {lib tm} \
+        mdstack     {lib} \
+        pdf4tcllib  {lib}]
+    set repoMarker [dict create \
+        docir       docir-0.1.tm \
+        mdstack     mdstack-0.1.tm \
+        pdf4tcllib  pdf4tcllib-0.2.tm]
+
+    foreach repo {docir mdstack pdf4tcllib} {
+        set envVar [dict get $repoEnv $repo]
+        if {![info exists ::env($envVar)] || $::env($envVar) eq ""} {
+            fail "Umgebungsvariable $envVar nicht gesetzt.\n  Beispiel: export $envVar=/pfad/zum/${repo}-repo"
+        }
+        set base $::env($envVar)
+        # Probiere zwei Layouts: $BASE selbst (wenn schon Modul-Pfad)
+        # oder $BASE/lib/tm bzw. $BASE/lib (wenn ganzes Repo).
+        set marker [dict get $repoMarker $repo]
+        set found ""
+        foreach try [list $base [file join $base {*}[dict get $repoSubdir $repo]]] {
+            if {[file exists [file join $try $marker]]} {
+                set found $try
+                break
+            }
+        }
+        if {$found eq ""} {
+            fail "$envVar=$base zeigt nicht auf $repo — $marker nicht gefunden"
+        }
+        foreach f [glob -nocomplain -directory $found *.tm] {
+            file copy -force $f [file join $vfsDir apptm [file tail $f]]
+        }
+        # Sub-Verzeichnis (z.B. docir/, mdstack/) auch mitkopieren
+        set subdir [file join $found [file tail [string trimright $found /]]]
+        # Fuer docir/mdstack: <found>/docir/ bzw. <found>/mdstack/
+        set ns ""
+        switch -- $repo {
+            docir   { set ns docir }
+            mdstack { set ns mdstack }
+        }
+        if {$ns ne "" && [file isdirectory [file join $found $ns]]} {
+            file mkdir [file join $vfsDir apptm $ns]
+            foreach f [glob -nocomplain -directory [file join $found $ns] *.tm] {
+                file copy -force $f [file join $vfsDir apptm $ns [file tail $f]]
+            }
+        }
     }
 
     # --- Tcl 8.6 -> 8.6- Patch fuer Tcl 9 Kompatibilitaet ---
@@ -212,11 +269,18 @@ source [file join $appDir mdhelp_app.tcl]
             "package require Tcl 8.6;"  "package require Tcl 8.6-;"
     }
 
-    # --- vendors/pkg (z.B. pdf4tcl) ---
-    set pkgDir [file join $scriptDir vendors pkg]
-    if {[llength [glob -nocomplain -directory $pkgDir *]] > 0} {
-        file mkdir [file join $vfsDir vendors]
-        copyDir $pkgDir [file join $vfsDir vendors pkg]
+    # --- pdf4tcl (klassisches Package mit pkgIndex.tcl) ---
+    # Auch via ENV — PDF4TCL_HOME muss auf das Verzeichnis mit pkgIndex.tcl zeigen.
+    if {[info exists ::env(PDF4TCL_HOME)] && $::env(PDF4TCL_HOME) ne ""} {
+        set pkgSrc $::env(PDF4TCL_HOME)
+        if {![file exists [file join $pkgSrc pkgIndex.tcl]]} {
+            warn "PDF4TCL_HOME=$pkgSrc enthaelt keine pkgIndex.tcl — PDF-Export im Starpack wird fehlschlagen"
+        } else {
+            file mkdir [file join $vfsDir vendors pkg]
+            copyDir $pkgSrc [file join $vfsDir vendors pkg [file tail $pkgSrc]]
+        }
+    } else {
+        warn "PDF4TCL_HOME nicht gesetzt — PDF-Export im Starpack wird fehlschlagen"
     }
 
     # --- Dokumentation ---
