@@ -31,9 +31,10 @@ package require mdstack::editorkit  0.2
 package require mdstack::outline    0.1
 package require mdstack::theme      0.1
 package require mdstack::html       0.1
+package require mdstack::pdf        0.2
 package require mdstack::text       0.1
 package require mdstack::contextmenu 0.1
-package require mdhelp_search    0.1
+package require mdhelp_search    0.2
 package require mdhelp_history   0.1
 package require mdhelp_clipboard 0.1
 package require mdindexgen       0.1
@@ -42,6 +43,16 @@ package require mdindexgen       0.1
 set ::hasPdf 0
 if {![catch {package require mdhelp_pdf 0.3}]} {
     set ::hasPdf 1
+}
+
+# nroff-Reader optional — erlaubt mdhelp das Anzeigen von .n/.1/.3tcl
+# Manpages neben Markdown. Liegt im man-viewer-Repo.
+set ::hasNroff 0
+if {![catch {
+    package require nroffparser   0.2
+    package require nroffrenderer 0.1
+}]} {
+    set ::hasNroff 1
 }
 
 # ============================================================
@@ -65,6 +76,13 @@ namespace eval app {
     variable viewerPath ""     ;# Path to main viewer widget
     variable notebook ""       ;# ttk::notebook for tabs
     variable editorTabs {}     ;# List of open editor tab IDs
+    # Nach Klick im TOC: syncTocFromScroll kurz unterdrücken (sonst
+    # überschreibt die Scroll-Sync-Logik die Auswahl mit dem Abschnitt
+    # *oberhalb* der sichtbaren Viewport-Zeile).
+    variable tocSyncSuppressUntil 0
+    # Konfigurierbar via Settings (Key: tocSyncSuppressMs). Werte 0..5000;
+    # 0 = Sync nie unterdruecken (alte Verhalten).
+    variable tocSyncSuppressMs 500
 }
 
 set ::app::metaTitle ""
@@ -98,6 +116,9 @@ proc app::buildUI {} {
     menu .menubar.file.recent -tearoff 0
     .menubar.file add cascade -label "Recent Folders" \
         -menu .menubar.file.recent
+    menu .menubar.file.recentFiles -tearoff 0
+    .menubar.file add cascade -label "Recent Files" \
+        -menu .menubar.file.recentFiles
     .menubar.file add separator
     .menubar.file add command -label "Generate Index" \
         -command app::generateIndex
@@ -113,6 +134,8 @@ proc app::buildUI {} {
     .menubar add cascade -label "Edit" -menu .menubar.edit
     .menubar.edit add command -label "Find..." \
         -accelerator "Ctrl+F" -command app::toggleSearch
+    .menubar.edit add command -label "Find/Replace..." \
+        -accelerator "Ctrl+H" -command app::toggleReplace
     .menubar.edit add command -label "Next Match" \
         -accelerator "F3" -command app::searchNext
     .menubar.edit add command -label "Previous Match" \
@@ -161,6 +184,12 @@ proc app::buildUI {} {
     .menubar.bookmarks add command -label "Remove" \
         -command app::removeBookmark
     .menubar.bookmarks add separator
+
+    # --- Tools (Cross-app) ---
+    menu .menubar.tools -tearoff 0
+    .menubar add cascade -label "Tools" -menu .menubar.tools
+    # Inhalt wird durch tools_external.tcl gefuellt — kommt nach
+    # Source-Block weiter unten.
 
     menu .menubar.help -tearoff 0
     .menubar add cascade -label "Help" -menu .menubar.help
@@ -230,33 +259,76 @@ proc app::buildUI {} {
     ttk::frame .searchbar
     # pack is done only at toggleSearch
 
-    ttk::label .searchbar.lbl -text "Search:"
-    ttk::entry .searchbar.entry -width 25 -textvariable ::app::searchPattern
-    ttk::button .searchbar.go -text "Find" -width 7 \
+    # --- Erste Zeile: Suche ---
+    ttk::frame .searchbar.f
+    pack .searchbar.f -fill x
+
+    ttk::label .searchbar.f.lbl -text "Search:"
+    ttk::combobox .searchbar.f.entry -width 25 \
+        -textvariable ::app::searchPattern \
+        -values $::app::searchHistory
+    ttk::button .searchbar.f.go -text "Find" -width 6 \
         -command app::doSearch
-    ttk::button .searchbar.prev -text "<" -width 2 \
+    ttk::button .searchbar.f.prev -text "<" -width 2 \
         -command app::searchPrev
-    ttk::button .searchbar.next -text ">" -width 2 \
+    ttk::button .searchbar.f.next -text ">" -width 2 \
         -command app::searchNext
-    ttk::separator .searchbar.sep -orient vertical
-    ttk::radiobutton .searchbar.rPage -text "Page" \
+    ttk::separator .searchbar.f.sep1 -orient vertical
+    ttk::checkbutton .searchbar.f.cCase  -text "Aa"   \
+        -variable ::app::searchCase
+    ttk::checkbutton .searchbar.f.cWord  -text "W"    \
+        -variable ::app::searchWord
+    ttk::checkbutton .searchbar.f.cRegex -text ".*"   \
+        -variable ::app::searchRegex
+    ttk::separator .searchbar.f.sep2 -orient vertical
+    ttk::radiobutton .searchbar.f.rPage   -text "Page" \
         -variable ::app::searchMode -value "page"
-    ttk::radiobutton .searchbar.rGlobal -text "All Files" \
+    ttk::radiobutton .searchbar.f.rGlobal -text "All Files" \
         -variable ::app::searchMode -value "global"
-    ttk::label .searchbar.status -textvariable ::app::searchStatus \
-        -foreground "#666666" -width 20
-    ttk::button .searchbar.close -text "X" -width 2 \
+    ttk::separator .searchbar.f.sep3 -orient vertical
+    ttk::button .searchbar.btnReplace -text "Replace +" -width 11 \
+        -command app::toggleReplace
+    ttk::label .searchbar.f.status \
+        -textvariable ::app::searchStatus \
+        -foreground "#666666" -width 28
+    ttk::button .searchbar.f.close -text "X" -width 2 \
         -command app::toggleSearch
 
-    pack .searchbar.lbl .searchbar.entry \
-         .searchbar.go .searchbar.prev .searchbar.next \
-         .searchbar.sep \
-         .searchbar.rPage .searchbar.rGlobal \
-         .searchbar.status -side left -padx 2
-    pack .searchbar.close -side right -padx 2
+    pack .searchbar.f.lbl .searchbar.f.entry \
+         .searchbar.f.go .searchbar.f.prev .searchbar.f.next \
+         .searchbar.f.sep1 \
+         .searchbar.f.cCase .searchbar.f.cWord .searchbar.f.cRegex \
+         .searchbar.f.sep2 \
+         .searchbar.f.rPage .searchbar.f.rGlobal \
+         .searchbar.f.sep3 \
+         .searchbar.btnReplace \
+         .searchbar.f.status -side left -padx 2
+    pack .searchbar.f.close -side right -padx 2
 
-    bind .searchbar.entry <Return> app::doSearch
-    bind .searchbar.entry <Escape> app::toggleSearch
+    # --- Zweite Zeile: Replace (anfangs versteckt) ---
+    ttk::frame .searchbar.r
+
+    ttk::label .searchbar.r.lbl -text "Replace:"
+    ttk::combobox .searchbar.r.entry -width 25 \
+        -textvariable ::app::replacePattern \
+        -values $::app::replaceHistory
+    ttk::button .searchbar.r.do -text "Replace" -width 8 \
+        -command app::doReplace
+    ttk::button .searchbar.r.donext -text "Replace + Next" -width 14 \
+        -command app::doReplaceNext
+    ttk::button .searchbar.r.all -text "Replace All" -width 12 \
+        -command app::doReplaceAll
+    ttk::label .searchbar.r.hint \
+        -text "(Replace nur im Editor-Tab)" -foreground "#888888"
+
+    pack .searchbar.r.lbl .searchbar.r.entry \
+         .searchbar.r.do .searchbar.r.donext .searchbar.r.all \
+         .searchbar.r.hint -side left -padx 2
+
+    bind .searchbar.f.entry <Return> app::doSearch
+    bind .searchbar.f.entry <Escape> app::toggleSearch
+    bind .searchbar.r.entry <Return> app::doReplace
+    bind .searchbar.r.entry <Escape> app::toggleSearch
 
     # -- PanedWindow --
     ttk::panedwindow .pw -orient horizontal
@@ -269,6 +341,18 @@ proc app::buildUI {} {
     # File tree
     ttk::labelframe .left.tree_frame -text "Library"
     pack .left.tree_frame -fill both -expand 1 -padx 2 -pady 2
+
+    # Filter-Eingabe
+    ttk::frame .left.tree_filt
+    pack .left.tree_filt -in .left.tree_frame -side top -fill x \
+        -padx 2 -pady {2 2}
+    ttk::label .left.tree_filt.l -text "Filter:"
+    ttk::entry .left.tree_filt.e -textvariable ::app::treeFilter
+    ttk::button .left.tree_filt.x -text "X" -width 2 \
+        -command { set ::app::treeFilter "" }
+    pack .left.tree_filt.l -side left -padx {2 2}
+    pack .left.tree_filt.x -side right -padx {2 2}
+    pack .left.tree_filt.e -side left -fill x -expand 1
 
     ttk::treeview .left.tree -show tree -selectmode browse \
         -yscrollcommand {.left.tree_sb set}
@@ -345,8 +429,21 @@ proc app::buildUI {} {
 
     pack .right.nb.vtab.viewer -fill both -expand 1
 
+    # Viewer-Scrollcommand wrappen: zusaetzlich zur Scrollbar
+    # auch TOC-Sync und Scrollpos-Tracking ausloesen.
+    set _vt [mdstack::viewer::widget $::app::viewerPath]
+    set _origSb [$_vt cget -yscrollcommand]
+    $_vt configure -yscrollcommand [list app::_viewerOnScroll $_origSb]
+    unset _vt _origSb
+
     # Tab change binding
     bind .right.nb <<NotebookTabChanged>> app::onTabChanged
+
+    # Tab schliessen via Mittelklick (nur Editor-Tabs)
+    bind .right.nb <Button-2> { app::tabCloseAt %x %y }
+    # Ctrl+W = aktuellen Editor-Tab schliessen
+    bind . <Control-w> app::closeCurrentTab
+    bind . <Control-W> app::closeCurrentTab
 
     # -- Status bar --
     ttk::label .status -textvariable ::app::statusText \
@@ -356,6 +453,8 @@ proc app::buildUI {} {
     # -- Keyboard Shortcuts --
     bind . <Control-f> app::toggleSearch
     bind . <Control-F> app::toggleSearch
+    bind . <Control-h> app::toggleReplace
+    bind . <Control-H> app::toggleReplace
     bind . <Control-o> app::openFolder
     bind . <Control-O> app::openFolder
     bind . <Control-q> {app::quit}
@@ -603,9 +702,15 @@ proc app::exportHtml {} {
 
     if {$currentFile eq "" || $currentAst eq ""} return
 
+    # 1. Style-Auswahl
+    set styleResult [app::_chooseHtmlStyle]
+    if {$styleResult eq ""} return  ;# abgebrochen
+    lassign $styleResult styleLabel cssPath
+
+    # 2. Speicherort
     set baseName [file rootname [file tail $currentFile]]
     set outFile [tk_getSaveFile \
-        -title "Save HTML" \
+        -title "Save HTML ($styleLabel)" \
         -defaultextension .html \
         -initialfile "${baseName}.html" \
         -filetypes {{"HTML Files" .html} {"All Files" *}}]
@@ -617,16 +722,130 @@ proc app::exportHtml {} {
         set title [dict get $currentAst meta title]
     }
 
+    # 3. Export mit optionalem CSS
+    set exportArgs [list \
+        -title $title \
+        -toc 1 \
+        -root [file dirname $currentFile]]
+    if {$cssPath ne ""} {
+        lappend exportArgs -css $cssPath
+    }
+
     if {[catch {
-        mdstack::html::export $currentAst $outFile \
-            -title $title \
-            -toc 1 \
-            -root [file dirname $currentFile]
-        set ::app::statusText "HTML exported: $outFile"
+        mdstack::html::export $currentAst $outFile {*}$exportArgs
+        set ::app::statusText "HTML exported: $outFile (style: $styleLabel)"
     } err]} {
         tk_messageBox -icon error -title "HTML Error" \
             -message "Export failed:\n$err"
     }
+}
+
+# ============================================================
+# HTML-Style-Auswahl-Dialog
+# ============================================================
+# Liefert Liste {label cssPath} oder "" wenn abgebrochen.
+# cssPath ist der absolute Pfad zur CSS-Datei oder "" fuer Default.
+proc app::_chooseHtmlStyle {} {
+    set ::_html_style_choice ""
+    # Starpack: styles/ direkt unter appDir (VFS-Root).
+    # Dev-Modus: styles/ ein Level über app/ (..)
+    if {[file isdirectory [file join $::appDir styles]]} {
+        set styleDir [file join $::appDir styles]
+    } else {
+        set styleDir [file join $::appDir .. styles]
+    }
+
+    # Verfuegbare Styles (Auto-Discovery + bekannte Namen)
+    set styles [dict create]
+    dict set styles "Default (mdstack)"        ""
+    if {[file exists [file join $styleDir sticky-top.css]]} {
+        dict set styles "Sticky Top (TOC scrollt mit)" \
+            [file normalize [file join $styleDir sticky-top.css]]
+    }
+    if {[file exists [file join $styleDir sidebar.css]]} {
+        dict set styles "Sidebar (TOC links, Body rechts)" \
+            [file normalize [file join $styleDir sidebar.css]]
+    }
+    if {[file exists [file join $styleDir collapsible.css]]} {
+        dict set styles "Collapsible (TOC zugeklappt)" \
+            [file normalize [file join $styleDir collapsible.css]]
+    }
+    # Weitere CSS-Dateien im styles/-Ordner automatisch hinzufuegen
+    if {[file isdirectory $styleDir]} {
+        foreach f [glob -nocomplain -directory $styleDir *.css] {
+            set base [file rootname [file tail $f]]
+            if {$base ni {sticky-top sidebar collapsible}} {
+                dict set styles "Custom: $base" [file normalize $f]
+            }
+        }
+    }
+    dict set styles "Custom file..." "__BROWSE__"
+
+    set labels [dict keys $styles]
+    set ::_html_style_label [lindex $labels 0]
+
+    # Dialog
+    toplevel .htmlstyle
+    wm title .htmlstyle "HTML-Style waehlen"
+    wm transient .htmlstyle .
+    wm resizable .htmlstyle 0 0
+
+    ttk::frame .htmlstyle.f -padding 12
+    pack .htmlstyle.f -fill both -expand 1
+
+    ttk::label .htmlstyle.f.lbl -text "Layout fuer das HTML-Inhaltsverzeichnis:" \
+        -font {TkDefaultFont 10 bold}
+    pack .htmlstyle.f.lbl -anchor w -pady {0 6}
+
+    ttk::combobox .htmlstyle.f.cmb -textvariable ::_html_style_label \
+        -values $labels -state readonly -width 42
+    pack .htmlstyle.f.cmb -fill x -pady {0 4}
+
+    ttk::label .htmlstyle.f.hint -text "Tip: weitere CSS-Dateien in styles/ werden automatisch erkannt." \
+        -foreground "#666" -font {TkDefaultFont 8}
+    pack .htmlstyle.f.hint -anchor w -pady {0 12}
+
+    ttk::frame .htmlstyle.f.btns
+    pack .htmlstyle.f.btns -fill x
+
+    ttk::button .htmlstyle.f.btns.ok -text "Weiter" -command {
+        set ::_html_style_choice $::_html_style_label
+        destroy .htmlstyle
+    }
+    ttk::button .htmlstyle.f.btns.cancel -text "Abbrechen" -command {
+        set ::_html_style_choice ""
+        destroy .htmlstyle
+    }
+    pack .htmlstyle.f.btns.cancel -side right -padx {4 0}
+    pack .htmlstyle.f.btns.ok -side right
+
+    bind .htmlstyle <Return> {
+        set ::_html_style_choice $::_html_style_label
+        destroy .htmlstyle
+    }
+    bind .htmlstyle <Escape> {
+        set ::_html_style_choice ""
+        destroy .htmlstyle
+    }
+
+    grab .htmlstyle
+    tkwait window .htmlstyle
+
+    if {$::_html_style_choice eq ""} {
+        return ""
+    }
+
+    set cssPath [dict get $styles $::_html_style_choice]
+
+    # Custom file: File-Dialog
+    if {$cssPath eq "__BROWSE__"} {
+        set cssPath [tk_getOpenFile \
+            -title "CSS-Datei waehlen" \
+            -filetypes {{"CSS" .css} {"All Files" *}}]
+        if {$cssPath eq ""} return ""
+    }
+
+    return [list $::_html_style_choice $cssPath]
 }
 
 # ============================================================
@@ -673,13 +892,42 @@ proc app::quit {} {
             }
         }
     }
+
+    # Aktuelle Scroll-Position vor dem Speichern festhalten
+    if {$::app::currentFile ne ""} {
+        catch {
+            set t [mdstack::viewer::widget $::app::viewerPath]
+            set ::app::scrollPos($::app::currentFile) [lindex [$t yview] 0]
+        }
+    }
+
+    # Auto-Save-Files entfernen (wir beenden sauber)
+    catch { app::autoSaveCleanup }
+
     app::saveSettings
     exit
 }
 # ============================================================
 
 # Einstellungen, Lesezeichen, Letzte Ordner (ausgelagert, Prio 12)
+# Shared-Config (~/.tcldocs.rc) -- vor Settings damit loadSettings darauf
+# zugreifen kann. Seit 2026-05-13 als externes Modul tcldocs::config
+# (Repo tcldocs-config). Identische API wie das frueher inline
+# gesourcete app/shared_config.tcl.
+package require tcldocs::config
+
 source [file join [file dirname [info script]] mdhelp_settings.tcl]
+
+# Cross-app Tools-Menue -- seit 2026-05-13 als externes Modul
+# tcldocs::launcher (Repo tcldocs-launcher). Identische API
+# (::tools::findApp etc.).
+package require tcldocs::launcher
+
+# DeepL-Übersetzungs-Helper (optional)
+source [file join [file dirname [info script]] deepl_helper.tcl]
+
+# Side-by-Side Viewer (Original ↔ Übersetzung)
+source [file join [file dirname [info script]] sidebyside.tcl]
 
 # ============================================================
 # Start
@@ -691,12 +939,52 @@ app::loadSettings
 
 app::buildUI
 
+# Tools-Menue jetzt fuellen (nach buildUI, weil .menubar.tools dann existiert)
+::tools::buildToolsMenu "mdhelp" .menubar.tools \
+    {expr {$::app::currentFile}} \
+    {expr {$::app::docsRoot}}
+
+# DeepL-Eintrag ans Tools-Menue anhaengen
+.menubar.tools add separator
+.menubar.tools add command \
+    -label "Translate selection (DeepL)" \
+    -command { app::deeplTranslateActive }
+.menubar.tools add command \
+    -label "Configure DeepL API key..." \
+    -command ::deepl::configureKey
+
+# Side-by-Side: Original + Übersetzung nebeneinander
+.menubar.tools add separator
+.menubar.tools add command \
+    -label "Open original side-by-side" \
+    -accelerator "F11" \
+    -command { ::sbs::open $::app::currentFile }
+bind . <F11> { ::sbs::open $::app::currentFile }
+
+proc app::deeplTranslateActive {} {
+    # Welches Widget ist aktiv? Editor, falls offen, sonst Viewer.
+    set t ""
+    set selected [.right.nb select]
+    if {$selected eq ".right.nb.vtab"} {
+        set t [mdstack::viewer::widget $::app::viewerPath]
+    } elseif {[info exists ::app::edText($selected)]} {
+        set t $::app::edText($selected)
+    }
+    if {$t eq "" || ![winfo exists $t]} {
+        tk_messageBox -icon info -title "DeepL" \
+            -message "Kein aktives Text-Widget."
+        return
+    }
+    ::deepl::translateSelection $t
+}
+
 # Geometry nach buildUI anwenden
 app::applyGeometry
 
 # Lesezeichen- und Recent-Menue aktualisieren
 app::updateBookmarkMenu
 app::updateRecentMenu
+app::updateRecentFilesMenu
 
 # Fenster-Schliessen abfangen
 wm protocol . WM_DELETE_WINDOW app::quit

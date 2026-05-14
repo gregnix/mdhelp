@@ -14,27 +14,104 @@ proc app::loadTree {root} {
 }
 
 
+namespace eval app {
+    variable nroffExts {.n .1 .2 .3 .4 .5 .6 .7 .8 .9 .3tcl .ntcl .man}
+}
+
+proc app::_isVisibleDocFile {file} {
+    set ext [string tolower [file extension $file]]
+    if {$ext eq ".md"} { return 1 }
+    if {$ext in $::app::nroffExts} { return 1 }
+    return 0
+}
+
+
 proc app::_addTreeDir {parent dir} {
     variable docsRoot
 
-    # Directories
+    # Wenn Filter gesetzt: nur Dateien zeigen, die matchen ODER deren
+    # Vater-Dir matchende Kinder hat.
+    set filt ""
+    if {[info exists ::app::treeFilter]} {
+        set filt [string trim $::app::treeFilter]
+    }
+
+    # Alle relevanten Doku-Dateien einsammeln (md + nroff)
+    set allFiles [list]
+    foreach f [glob -nocomplain -directory $dir -types f *] {
+        if {[app::_isVisibleDocFile $f]} { lappend allFiles $f }
+    }
+    set allFiles [lsort $allFiles]
+
+    if {$filt eq ""} {
+        # Standardverhalten ohne Filter
+        foreach d [lsort [glob -nocomplain -directory $dir -types d *]] {
+            set name [file tail $d]
+            if {[string match .* $name]} continue
+            set id [.left.tree insert $parent end -text $name -open 0 \
+                -values [list $d "dir"]]
+            app::_addTreeDir $id $d
+        }
+        foreach f $allFiles {
+            set name [file tail $f]
+            if {$name eq "index.md"} continue
+            # Anzeige-Name: für .md ohne Extension, für .n MIT Extension
+            set ext [string tolower [file extension $name]]
+            if {$ext eq ".md"} {
+                set display [file rootname $name]
+            } else {
+                set display $name  ;# nroff-Files mit Extension zeigen
+            }
+            .left.tree insert $parent end -text $display \
+                -values [list $f "file"]
+        }
+        return
+    }
+
+    # Mit Filter: rekursiv prüfen ob ein Match unterhalb existiert
     foreach d [lsort [glob -nocomplain -directory $dir -types d *]] {
         set name [file tail $d]
         if {[string match .* $name]} continue
-        set id [.left.tree insert $parent end -text $name -open 0 \
-            -values [list $d "dir"]]
-        app::_addTreeDir $id $d
+        if {[app::_dirHasMatch $d $filt]} {
+            set id [.left.tree insert $parent end -text $name -open 1 \
+                -values [list $d "dir"]]
+            app::_addTreeDir $id $d
+        }
     }
-
-    # Markdown files
-    foreach f [lsort [glob -nocomplain -directory $dir -types f *.md]] {
+    foreach f $allFiles {
         set name [file tail $f]
-        # index.md ausblenden (wird automatisch angezeigt)
         if {$name eq "index.md"} continue
-        set display [file rootname $name]
-        .left.tree insert $parent end -text $display \
-            -values [list $f "file"]
+        set ext [string tolower [file extension $name]]
+        if {$ext eq ".md"} {
+            set display [file rootname $name]
+        } else {
+            set display $name
+        }
+        if {[string match -nocase "*${filt}*" $display]} {
+            .left.tree insert $parent end -text $display \
+                -values [list $f "file"]
+        }
     }
+}
+
+proc app::_dirHasMatch {dir filt} {
+    foreach f [glob -nocomplain -directory $dir -types f *] {
+        if {![app::_isVisibleDocFile $f]} continue
+        set name [file tail $f]
+        if {$name eq "index.md"} continue
+        set ext [string tolower [file extension $name]]
+        if {$ext eq ".md"} {
+            set checkName [file rootname $name]
+        } else {
+            set checkName $name
+        }
+        if {[string match -nocase "*${filt}*" $checkName]} { return 1 }
+    }
+    foreach d [glob -nocomplain -directory $dir -types d *] {
+        if {[string match .* [file tail $d]]} continue
+        if {[app::_dirHasMatch $d $filt]} { return 1 }
+    }
+    return 0
 }
 
 
@@ -95,16 +172,59 @@ proc app::openFile {file {pushHistory 1}} {
     }
     close $fh
 
-    # Parsen + Rendern
-    set tokens [mdstack::parser::parse $markdown]
-    set currentDoc [mdstack::model::new $tokens]
-    set currentAst [mdstack::model::ast $currentDoc]
+    # Format-Erkennung: Markdown vs nroff
+    set ext [string tolower [file extension $file]]
+    set isNroff [expr {$ext in {.n .1 .2 .3 .4 .5 .6 .7 .8 .9 ".3tcl" ".ntcl" ".man"}}]
 
-    mdstack::viewer::configure $::app::viewerPath -root [file dirname $file]
-    mdstack::viewer::render $::app::viewerPath $currentAst
+    if {$isNroff && ![info exists ::hasNroff]} { set ::hasNroff 0 }
+    if {$isNroff && !$::hasNroff} {
+        # nroff-Module nicht installiert → einfache Anzeige als Plaintext
+        set t [mdstack::viewer::widget $::app::viewerPath]
+        $t configure -state normal
+        $t delete 1.0 end
+        $t insert end "[Plain-Text-Anzeige — nroff-Renderer fehlt.\n"
+        $t insert end "Installiere die Pakete nroffparser/nroffrenderer aus man-viewer.]\n\n"
+        $t insert end $markdown
+        $t configure -state disabled
+        set currentDoc {}
+        set currentAst {}
+    } elseif {$isNroff} {
+        # nroff via nroffparser+nroffrenderer rendern
+        if {[catch {
+            set ast [nroffparser::parse $markdown $file]
+            set t [mdstack::viewer::widget $::app::viewerPath]
+            mdstack::viewer::clear $::app::viewerPath
+            $t configure -state normal
+            nroffrenderer::render $ast $t \
+                [dict create fontSize $::app::fontSize]
+            $t configure -state disabled
+            set currentDoc {}
+            set currentAst {}
+        } err]} {
+            set ::app::statusText "nroff-Parse-Fehler: $err"
+            set t [mdstack::viewer::widget $::app::viewerPath]
+            $t configure -state normal
+            $t delete 1.0 end
+            $t insert end "Konnte nroff-Datei nicht parsen:\n\n$err"
+            $t configure -state disabled
+        }
+    } else {
+        # Markdown-Pfad (Standard)
+        set tokens [mdstack::parser::parse $markdown]
+        set currentDoc [mdstack::model::new $tokens]
+        set currentAst [mdstack::model::ast $currentDoc]
 
-    # TIP-700-Styling (Span-Farben + Div-Hintergruende)
-    app::applyTip700Styling
+        mdstack::viewer::configure $::app::viewerPath -root [file dirname $file]
+        mdstack::viewer::render $::app::viewerPath $currentAst
+
+        # TIP-700-Styling (Span-Farben + Div-Hintergruende)
+        app::applyTip700Styling
+    }
+
+    # Such-Tags ueber alle anderen heben (sicherheitshalber, da
+    # initTags / applyTip700Styling spaeter neue Tags erzeugen koennen).
+    set t [mdstack::viewer::widget $::app::viewerPath]
+    catch { mdhelp_search::raiseTags $t }
 
     set currentFile $file
 
@@ -112,11 +232,22 @@ proc app::openFile {file {pushHistory 1}} {
     if {$pushHistory} {
         set t [mdstack::viewer::widget $::app::viewerPath]
         mdhelp_history::push $t $file
+        # Recent Files aktualisieren (nur bei explizitem Open)
+        catch {app::addRecentFile $file}
     }
 
     # Reset search
     mdhelp_search::clear [mdstack::viewer::widget $::app::viewerPath]
     set ::app::searchStatus ""
+
+    # Scroll-Position wiederherstellen falls gespeichert.
+    # render() scrollt selbst nach 1.0 — wir korrigieren danach.
+    if {[info exists scrollPos($file)]} {
+        # idle-call, damit Render und Geometry fertig sind
+        after idle [list catch [list \
+            [mdstack::viewer::widget $::app::viewerPath] yview moveto \
+            $scrollPos($file)]]
+    }
 
     # Update UI
     app::updateBreadcrumb
@@ -311,3 +442,34 @@ proc app::restoreScroll {file} {
     }
 }
 
+
+# ============================================================
+# Tree-Filter Trace (Debounced Reload)
+# ============================================================
+
+set ::app::treeFilter ""
+set ::app::_treeFilterDebounceId ""
+set ::app::_treeFilterDebounceMs 200
+
+proc app::_onTreeFilterChange {args} {
+    if {$::app::_treeFilterDebounceId ne ""} {
+        catch {after cancel $::app::_treeFilterDebounceId}
+    }
+    set ::app::_treeFilterDebounceId [after \
+        $::app::_treeFilterDebounceMs app::_runTreeFilter]
+}
+
+proc app::_runTreeFilter {} {
+    set ::app::_treeFilterDebounceId ""
+    if {$::app::docsRoot eq ""} return
+    catch {.left.tree delete [.left.tree children {}]}
+    catch {app::_addTreeDir {} $::app::docsRoot}
+    # Falls eine Datei aktiv ist, syncTree wieder ausfuehren
+    catch {app::syncTree}
+}
+
+if {[lsearch -index 1 [trace info variable ::app::treeFilter] \
+        app::_onTreeFilterChange] < 0} {
+    trace add variable ::app::treeFilter write \
+        app::_onTreeFilterChange
+}

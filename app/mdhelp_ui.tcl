@@ -34,7 +34,105 @@ proc app::onTocSelect {} {
     set vals [.left.toc item $sel -values]
     set anchor [lindex $vals 0]
     if {$anchor ne ""} {
+        # Scroll ausgelöst durch gotoAnchor triggert syncTocFromScroll,
+        # das anhand der *obersten* sichtbaren Zeile oft noch den
+        # vorherigen Abschnitt wählt — Selektion „wandert nach oben“.
+        if {$::app::_scrollSyncId ne ""} {
+            catch {after cancel $::app::_scrollSyncId}
+            set ::app::_scrollSyncId ""
+        }
+        set ::app::tocSyncSuppressUntil \
+            [expr {[clock milliseconds] + $::app::tocSyncSuppressMs}]
         mdstack::viewer::gotoAnchor $::app::viewerPath $anchor
+    }
+}
+
+
+# ============================================================
+# TOC-Sync beim Scrollen
+# ============================================================
+# Findet das letzte Heading-Anchor, dessen Position im Text-Widget
+# noch oberhalb der aktuell sichtbaren Zeile liegt — und markiert es
+# im TOC-Tree.
+#
+# Wird vom Viewer-yscrollcommand-Wrapper gerufen (siehe buildUI).
+
+proc app::_findCurrentAnchor {} {
+    set t [mdstack::viewer::widget $::app::viewerPath]
+    # Sichtbare Top-Zeile als Index ermitteln
+    if {[catch {set topIdx [$t index "@0,0"]} _]} { return "" }
+
+    # Alle Anchor-Marks einsammeln und nach Position sortieren
+    set anchors {}
+    foreach m [$t mark names] {
+        if {![string match "anchor_*" $m]} continue
+        set pos [$t index $m]
+        lappend anchors [list $pos [string range $m 7 end]]
+    }
+    if {[llength $anchors] == 0} { return "" }
+
+    # Sortiere nach Text-Index (lexikografisch geht nicht, brauche
+    # Tk-Vergleich)
+    set anchors [lsort -command app::_cmpTextIdx -index 0 $anchors]
+
+    # Letzte Marke <= topIdx finden
+    set best ""
+    foreach pair $anchors {
+        lassign $pair pos name
+        if {[$t compare $pos <= $topIdx]} {
+            set best $name
+        } else {
+            break
+        }
+    }
+    # Falls nichts vor der sichtbaren Zeile: ersten Anchor
+    if {$best eq "" && [llength $anchors] > 0} {
+        set best [lindex [lindex $anchors 0] 1]
+    }
+    return $best
+}
+
+proc app::_cmpTextIdx {a b} {
+    set t [mdstack::viewer::widget $::app::viewerPath]
+    if {[$t compare $a < $b]} { return -1 }
+    if {[$t compare $a > $b]} { return 1 }
+    return 0
+}
+
+proc app::syncTocFromScroll {} {
+    # Wird vom yscrollcommand-Wrapper gerufen.
+    # Markiert im TOC den naechstgelegenen vorausgehenden Anchor.
+    if {![winfo exists .left.toc]} return
+    if {[clock milliseconds] < $::app::tocSyncSuppressUntil} {
+        return
+    }
+    set anchor [app::_findCurrentAnchor]
+    if {$anchor eq ""} return
+
+    # Item mit passendem -values 0 finden
+    foreach id [.left.toc children {}] {
+        set vals [.left.toc item $id -values]
+        if {[lindex $vals 0] eq $anchor} {
+            # nur aktualisieren wenn sich was geaendert hat
+            if {[lindex [.left.toc selection] 0] eq $id} return
+            # Selektion ohne erneutes Scroll-Event setzen:
+            # binding temporaer abklemmen
+            bind .left.toc <<TreeviewSelect>> {}
+            .left.toc selection set $id
+            .left.toc see $id
+            bind .left.toc <<TreeviewSelect>> app::onTocSelect
+            return
+        }
+    }
+}
+
+# Aktuelle Scroll-Position im scrollPos-Array festhalten,
+# wird beim Quit gespeichert.
+proc app::trackScrollPos {} {
+    if {$::app::currentFile eq ""} return
+    catch {
+        set t [mdstack::viewer::widget $::app::viewerPath]
+        set ::app::scrollPos($::app::currentFile) [lindex [$t yview] 0]
     }
 }
 
@@ -175,6 +273,37 @@ proc app::applyTip700Styling {} {
     variable fontSize
     set t [mdstack::viewer::widget $::app::viewerPath]
 
+    # ── Code-Block Sichtbarkeit verbessern ──
+    # Standardfarbe #e8e8e8 ist auf weissem Hintergrund kaum
+    # erkennbar. Wir setzen einen klar abgesetzten Hintergrund und
+    # geben dem Block eine deutliche linke Einrueckung.
+    set codeBg [mdstack::theme::color code_bg]
+    set codeFg [mdstack::theme::color fg]
+    set codeInlBg [mdstack::theme::color code_inline_bg]
+    # Falls Helltheme: stark abgesetztes Grau; Dunkeltheme: belassen
+    if {$::app::theme eq "hell"} {
+        set codeBg     "#e0e6ed"   ;# leicht blau-grau, klar sichtbar
+        set codeInlBg  "#dde4ec"
+    }
+    catch {
+        $t tag configure codeblock \
+            -background $codeBg \
+            -foreground $codeFg \
+            -lmargin1 24 -lmargin2 24 -rmargin 20 \
+            -spacing1 4 -spacing3 4 \
+            -borderwidth 1 -relief flat
+        $t tag configure codeinline \
+            -background $codeInlBg \
+            -foreground $codeFg \
+            -borderwidth 1 -relief flat
+    }
+    catch {
+        $t tag configure codelabel \
+            -background [mdstack::theme::color code_label_bg] \
+            -foreground [mdstack::theme::color code_label_fg] \
+            -lmargin1 24 -lmargin2 24
+    }
+
     # Span-Klassen: Farben aus Theme
     foreach {cls styleType} {
         cmd bold  sub bold  lit bold  optlit bold
@@ -199,6 +328,10 @@ proc app::applyTip700Styling {} {
             -lmargin1 12 -lmargin2 12 -rmargin 12 \
             -spacing1 4 -spacing3 4
     }
+
+    # Such-Tags wieder nach oben heben (div_* / codeblock haben
+    # gerade ggf. ihre Prioritaet erneuert).
+    catch { mdhelp_search::raiseTags $t }
 }
 
 
@@ -268,3 +401,31 @@ proc app::_syncTreeItem {parent norm} {
     return 0
 }
 
+
+# ============================================================
+# Viewer-Scrollcommand-Wrapper
+# ============================================================
+# Wird in buildUI als -yscrollcommand des Viewer-Text-Widgets
+# eingehaengt. Ruft erst die Original-Scrollbar-Aktualisierung auf
+# und triggert dann debounced TOC-Sync sowie Scroll-Position-Update.
+
+set ::app::_scrollSyncId ""
+
+proc app::_viewerOnScroll {origCmd args} {
+    # Original (Scrollbar setzen) sofort aufrufen — damit die
+    # Scrollbar nicht ruckelt.
+    if {$origCmd ne ""} {
+        catch { {*}$origCmd {*}$args }
+    }
+    # Debounced TOC-Sync + Position-Tracking
+    if {$::app::_scrollSyncId ne ""} {
+        catch {after cancel $::app::_scrollSyncId}
+    }
+    set ::app::_scrollSyncId [after 150 app::_scrollSyncTick]
+}
+
+proc app::_scrollSyncTick {} {
+    set ::app::_scrollSyncId ""
+    catch { app::syncTocFromScroll }
+    catch { app::trackScrollPos }
+}

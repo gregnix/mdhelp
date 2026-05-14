@@ -35,6 +35,16 @@ proc app::openInEditor {file} {
         }
     }
 
+    # Auto-Save-Pruefung: gibt es eine neuere autosave-Version?
+    set restored [app::autoSaveCheckRestore $file]
+    if {$restored ne ""} {
+        set markdown $restored
+        # Markiere dirty, damit der User die Wiederherstellung speichert
+        set _restoredDirty 1
+    } else {
+        set _restoredDirty 0
+    }
+
     # Tab-ID erzeugen
     set tabId "ed_[clock microseconds]"
     set w $notebook.$tabId
@@ -159,10 +169,12 @@ proc app::openInEditor {file} {
     # --- Status Bar ---
     ttk::frame $w.st
     pack $w.st -fill x -side bottom
-    ttk::label $w.st.line -text "Line: 1" -width 12
-    ttk::label $w.st.type -text "" -width 20
-    ttk::label $w.st.mod -text "" -width 15 -foreground [mdstack::theme::color status_error]
-    pack $w.st.line $w.st.type $w.st.mod -side left -padx 5
+    ttk::label $w.st.line  -text "Line: 1"   -width 12
+    ttk::label $w.st.type  -text ""          -width 20
+    ttk::label $w.st.count -text ""          -width 22 -foreground "#666666"
+    ttk::label $w.st.mod   -text ""          -width 15 \
+        -foreground [mdstack::theme::color status_error]
+    pack $w.st.line $w.st.type $w.st.count $w.st.mod -side left -padx 5
 
     # --- mdeditorkit: Editor + Preview ---
     ttk::panedwindow $w.outer -orient horizontal
@@ -206,11 +218,24 @@ proc app::openInEditor {file} {
     mdstack::editorkit::settext $kit $markdown
     $ed modified 0
 
+    # Wenn aus Auto-Save wiederhergestellt: dirty markieren, damit
+    # User den Restore explizit speichern kann.
+    if {$_restoredDirty} {
+        set ::app::edDirty($w) 1
+        catch {
+            $::app::notebook tab $w -text "* [file tail $file]"
+        }
+        set ::app::statusText "Aus Auto-Save wiederhergestellt — bitte speichern"
+    }
+
     # Fill outline initially
     mdstack::outline::refresh $outline
 
     # Status update timer
     app::editorUpdateStatus $w
+
+    # Auto-Save-Timer starten (laeuft global, nur einmal aktiv)
+    app::autoSaveStart
 
     # Bindings (on the tab frame)
     set t_ed [mdstack::text::_t $ed]
@@ -220,6 +245,8 @@ proc app::openInEditor {file} {
     bind $t_ed <Control-Z> [list app::editorUndo $w]
     bind $t_ed <Control-y> [list app::editorRedo $w]
     bind $t_ed <Control-Y> [list app::editorRedo $w]
+    bind $t_ed <Control-g> [list app::editorGotoLine $w]
+    bind $t_ed <Control-G> [list app::editorGotoLine $w]
     bind $t_ed <F7> [list app::editorSpellAll $w]
 
     # Initial spell checking (delayed)
@@ -236,6 +263,72 @@ proc app::editorUndo {w} {
     if {[catch {$t edit undo}]} {
         bell
     }
+}
+
+proc app::editorGotoLine {w} {
+    # Springt zu einer vom Benutzer eingegebenen Zeilennummer.
+    variable edKit
+    if {![info exists edKit($w)]} return
+    set ed [mdstack::editorkit::editor $edKit($w)]
+    set t [mdstack::text::_t $ed]
+
+    # Aktuelle Maximalzeile ermitteln
+    set maxLine [lindex [split [$t index end-1c] .] 0]
+    set initVal [lindex [split [$t index insert] .] 0]
+
+    # Modaler kleiner Dialog
+    set dlg .editorGoto
+    catch {destroy $dlg}
+    toplevel $dlg
+    wm title $dlg "Gehe zu Zeile"
+    wm transient $dlg [winfo toplevel $w]
+    wm resizable $dlg 0 0
+
+    ttk::label $dlg.lbl -text "Zeile (1 - $maxLine):"
+    ttk::entry $dlg.e -width 10 -justify right
+    $dlg.e insert end $initVal
+    $dlg.e selection range 0 end
+
+    ttk::frame $dlg.btns
+    ttk::button $dlg.btns.ok -text "OK" -width 8 -command [list apply {{dlg t maxLine} {
+        set v [$dlg.e get]
+        if {[string is integer -strict $v] && $v >= 1 && $v <= $maxLine} {
+            $t mark set insert $v.0
+            $t see $v.0
+            focus $t
+            destroy $dlg
+        } else {
+            bell
+            $dlg.e selection range 0 end
+            focus $dlg.e
+        }
+    }} $dlg $t $maxLine]
+    ttk::button $dlg.btns.cancel -text "Abbrechen" -width 10 \
+        -command [list destroy $dlg]
+    pack $dlg.btns.ok $dlg.btns.cancel -side left -padx 4
+
+    pack $dlg.lbl -padx 10 -pady {10 2}
+    pack $dlg.e   -padx 10 -pady {0 8}
+    pack $dlg.btns -padx 10 -pady {0 10}
+
+    bind $dlg.e <Return> [list $dlg.btns.ok invoke]
+    bind $dlg   <Escape> [list destroy $dlg]
+
+    # Mittig zum Hauptfenster
+    update idletasks
+    set parent [winfo toplevel $w]
+    set px [winfo rootx $parent]
+    set py [winfo rooty $parent]
+    set pw [winfo width $parent]
+    set ph [winfo height $parent]
+    set dw [winfo reqwidth $dlg]
+    set dh [winfo reqheight $dlg]
+    set x [expr {$px + ($pw - $dw) / 2}]
+    set y [expr {$py + ($ph - $dh) / 3}]
+    wm geometry $dlg "+$x+$y"
+
+    grab $dlg
+    focus $dlg.e
 }
 
 proc app::editorRedo {w} {
@@ -344,14 +437,31 @@ proc app::editorUpdateStatus {w} {
     # Line type
     catch {$w.st.type configure -text "[$ed lineType]"}
 
+    # Wort-/Zeichen-Zaehler
+    catch {
+        set t [mdstack::text::_t $ed]
+        set txt [$t get 1.0 "end - 1 char"]
+        set chars [string length $txt]
+        # Wortzaehler: nicht-leere whitespace-getrennte Token
+        set words [llength [regexp -all -inline {\S+} $txt]]
+        $w.st.count configure -text "${words} W / ${chars} Z"
+    }
+
     # Modified
     if {[info exists ::app::edDirty($w)] && $::app::edDirty($w)} {
         $w.st.mod configure -text "\[MODIFIED\]"
     } else {
-        $w.st.mod configure -text ""
+        # Wenn kein Modified: stattdessen ggf. Auto-Save-Status zeigen
+        if {$::app::autoSaveLastStatus ne ""} {
+            $w.st.mod configure -text $::app::autoSaveLastStatus \
+                -foreground "#666666"
+        } else {
+            $w.st.mod configure -text "" \
+                -foreground [mdstack::theme::color status_error]
+        }
     }
 
-    after 300 [list app::editorUpdateStatus $w]
+    after 500 [list app::editorUpdateStatus $w]
 }
 
 proc app::editorSave {w file} {
@@ -376,6 +486,9 @@ proc app::editorSave {w file} {
         $::app::notebook tab $w -text [file tail $file]
     }
 
+    # Auto-Save-File entfernen — wir sind sauber
+    catch { app::autoSaveRemove $file }
+
     # Update viewer if same file
     if {[file normalize $file] eq [file normalize $::app::currentFile]} {
         app::reload
@@ -395,7 +508,12 @@ proc app::editorClose {w file} {
             -message "Save changes to [file tail $file]?"]
         switch -- $answer {
             yes    { app::editorSave $w $file ; app::editorDestroy $w }
-            no     { app::editorDestroy $w }
+            no     {
+                # Auch ohne Save: autosave entfernen, wenn User
+                # explizit verworfen hat.
+                catch { app::autoSaveRemove $file }
+                app::editorDestroy $w
+            }
             cancel { return }
         }
     } else {
@@ -425,6 +543,11 @@ proc app::editorDestroy {w} {
     catch {$notebook forget $w}
     set editorTabs [lsearch -all -inline -not -exact $editorTabs $w]
     catch {destroy $w}
+
+    # Wenn keine Editor-Tabs mehr offen sind: Auto-Save-Timer stoppen
+    if {[llength $editorTabs] == 0} {
+        catch { app::autoSaveStop }
+    }
 
     # Return to viewer tab
     catch {$notebook select 0}
@@ -479,3 +602,151 @@ proc app::editorSpellAll {w} {
     }
 }
 
+
+# ============================================================
+# Auto-Save fuer Editor-Tabs
+# ============================================================
+# Alle ::app::autoSaveIntervalMs ms wird jeder dirty Editor-Tab in
+# eine versteckte Datei .<basename>.autosave neben dem Original
+# geschrieben. Beim regulaeren Save oder Tab-Close wird sie wieder
+# entfernt.
+#
+# Beim Oeffnen einer Datei prueft openInEditor, ob ein neuerer
+# autosave existiert, und bietet Wiederherstellung an.
+
+set ::app::autoSaveIntervalMs 30000   ;# 30s
+set ::app::autoSaveTimerId    ""
+set ::app::autoSaveLastStatus ""
+
+proc app::_autoSavePath {file} {
+    set dir  [file dirname $file]
+    set base [file tail $file]
+    return [file join $dir ".${base}.autosave"]
+}
+
+proc app::autoSaveTick {} {
+    variable editorTabs
+    set anySaved 0
+    foreach w $editorTabs {
+        if {![info exists ::app::edDirty($w)]}  continue
+        if {!$::app::edDirty($w)}                continue
+        if {![info exists ::app::edFile($w)]}   continue
+        if {![info exists ::app::edKit($w)]}    continue
+
+        set file $::app::edFile($w)
+        set asPath [app::_autoSavePath $file]
+        if {[catch {
+            set markdown [mdstack::editorkit::gettext $::app::edKit($w)]
+            set fh [open $asPath w]
+            fconfigure $fh -encoding utf-8
+            puts -nonewline $fh $markdown
+            close $fh
+        } err]} {
+            catch {close $fh}
+            # stille Ignorierung — kein Schreibrecht etc.
+        } else {
+            set anySaved 1
+        }
+    }
+    if {$anySaved} {
+        set ts [clock format [clock seconds] -format "%H:%M:%S"]
+        set ::app::autoSaveLastStatus "Auto-saved $ts"
+    }
+
+    # Reschedule
+    set ::app::autoSaveTimerId [after $::app::autoSaveIntervalMs \
+        app::autoSaveTick]
+}
+
+proc app::autoSaveStart {} {
+    if {$::app::autoSaveTimerId ne ""} return
+    set ::app::autoSaveTimerId [after $::app::autoSaveIntervalMs \
+        app::autoSaveTick]
+}
+
+proc app::autoSaveStop {} {
+    if {$::app::autoSaveTimerId ne ""} {
+        catch {after cancel $::app::autoSaveTimerId}
+        set ::app::autoSaveTimerId ""
+    }
+}
+
+proc app::autoSaveRemove {file} {
+    # Wird nach erfolgreichem Save oder Close gerufen.
+    catch { file delete -force [app::_autoSavePath $file] }
+}
+
+proc app::autoSaveCleanup {} {
+    # Beim sauberen Quit alle autosaves entfernen, auch wenn die
+    # Tabs schon geschlossen sind aber wir noch File-Pfade kennen.
+    variable editorTabs
+    foreach w $editorTabs {
+        if {[info exists ::app::edFile($w)]} {
+            app::autoSaveRemove $::app::edFile($w)
+        }
+    }
+}
+
+proc app::autoSaveCheckRestore {file} {
+    # Prueft ob ein Auto-Save zur Datei existiert und neuer ist als
+    # die Originaldatei. Wenn ja: frage den User.
+    # Returnt: Inhalt zum Wiederherstellen (Text) oder "" wenn nicht.
+    set asPath [app::_autoSavePath $file]
+    if {![file exists $asPath]} { return "" }
+
+    set asTime  [file mtime $asPath]
+    set origTime 0
+    catch { set origTime [file mtime $file] }
+
+    if {$asTime <= $origTime} {
+        # Original ist neuer (oder gleich) → veralteten autosave loeschen
+        catch { file delete -force $asPath }
+        return ""
+    }
+
+    set diff [expr {$asTime - $origTime}]
+    set when [clock format $asTime -format "%Y-%m-%d %H:%M:%S"]
+    set answer [tk_messageBox -icon question -type yesno \
+        -title "Auto-Save gefunden" \
+        -message "Fuer\n  [file tail $file]\nexistiert ein Auto-Save\nvom $when\n($diff Sek. neuer als die Datei).\n\nWiederherstellen?"]
+
+    if {$answer eq "yes"} {
+        if {[catch {
+            set fh [open $asPath r]
+            fconfigure $fh -encoding utf-8
+            set content [read $fh]
+            close $fh
+        } err]} {
+            catch {close $fh}
+            return ""
+        }
+        return $content
+    } else {
+        # Verworfen → autosave loeschen
+        catch { file delete -force $asPath }
+        return ""
+    }
+}
+
+# ============================================================
+# Tabs schliessen (Mittelklick + Ctrl+W)
+# ============================================================
+
+proc app::tabCloseAt {x y} {
+    # Wird per Button-2 (Mittelklick) auf .right.nb aufgerufen.
+    set tab [$::app::notebook identify tab $x $y]
+    if {$tab eq ""} return
+    set w [lindex [$::app::notebook tabs] $tab]
+    if {$w eq ".right.nb.vtab"} return  ;# Viewer-Tab nicht schliessbar
+    if {[info exists ::app::edFile($w)]} {
+        app::editorClose $w $::app::edFile($w)
+    }
+}
+
+proc app::closeCurrentTab {} {
+    set tab [$::app::notebook select]
+    if {$tab eq ".right.nb.vtab"} return
+    if {[info exists ::app::edFile($tab)]} {
+        app::editorClose $tab $::app::edFile($tab)
+    }
+}

@@ -16,7 +16,7 @@ via `package require` ueber Tcls Standard-Mechanismus geladen.
 | `docir` | https://github.com/gregnix/docir | `cd docir && sudo make install` |
 | `mdstack` | https://github.com/gregnix/mdstack | `cd mdstack && sudo make install` |
 | `pdf4tcllib` | https://github.com/gregnix/pdf4tcllib | `cd pdf4tcllib && sudo make install` |
-| `pdf4tcl` (3rd-party) | https://github.com/gregnix/pdf4tcl | manuell — siehe unten |
+| `pdf4tcl` (3rd-party) | https://sourceforge.net/projects/pdf4tcl/ | manuell — siehe unten |
 | DejaVu fonts | OS package manager | `sudo apt install ttf-dejavu` |
 
 `make install` legt die Module nach `/usr/local/lib/tcltk/<repo>/` ab.

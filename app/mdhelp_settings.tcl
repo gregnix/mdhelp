@@ -18,12 +18,21 @@ proc app::saveSettings {} {
     variable docsRoot
     variable fontSize
     variable theme
+    variable tocSyncSuppressMs
+
+    # Shared-Settings updaten (gleiche Werte wie unten in der eigenen
+    # Datei, aber jede App liest beim Start beide).
+    catch {
+        ::tcldocs::setShared theme $theme
+        ::tcldocs::setShared fontSize $fontSize
+    }
 
     set data {}
     lappend data [list fontSize $fontSize]
     lappend data [list docsRoot $docsRoot]
     lappend data [list geometry [wm geometry .]]
     lappend data [list theme $theme]
+    lappend data [list tocSyncSuppressMs $tocSyncSuppressMs]
 
     # Bookmarks
     variable bookmarks
@@ -35,6 +44,35 @@ proc app::saveSettings {} {
     variable recentDirs
     if {[llength $recentDirs] > 0} {
         lappend data [list recentDirs $recentDirs]
+    }
+
+    # Recent files (max 15)
+    variable recentFiles
+    if {[info exists recentFiles] && [llength $recentFiles] > 0} {
+        lappend data [list recentFiles $recentFiles]
+    }
+
+    # Such-Historie (max je 15)
+    if {[info exists ::app::searchHistory] && \
+            [llength $::app::searchHistory] > 0} {
+        lappend data [list searchHistory $::app::searchHistory]
+    }
+    if {[info exists ::app::replaceHistory] && \
+            [llength $::app::replaceHistory] > 0} {
+        lappend data [list replaceHistory $::app::replaceHistory]
+    }
+
+    # Scroll-Positionen pro Datei (max 200 Eintraege, neueste zuerst)
+    variable scrollPos
+    if {[info exists scrollPos] && [array size scrollPos] > 0} {
+        set posList {}
+        foreach k [array names scrollPos] {
+            lappend posList [list $k $scrollPos($k)]
+        }
+        # Auf 200 begrenzen — Eintraege fuer Dateien die nicht mehr
+        # existieren werden beim naechsten Save gefiltert.
+        set posList [lrange $posList 0 199]
+        lappend data [list filePos $posList]
     }
 
     if {[catch {
@@ -57,6 +95,18 @@ proc app::loadSettings {} {
     variable recentDirs
     variable theme
 
+    # Erst shared-Settings laden (~/.tcldocs.rc) — werden von eigenen
+    # Settings ueberschrieben falls auch dort gesetzt.
+    catch {
+        set sharedTheme [::tcldocs::getShared theme ""]
+        if {$sharedTheme ne ""} { set theme $sharedTheme }
+        set sharedFs [::tcldocs::getShared fontSize ""]
+        if {$sharedFs ne "" && [string is integer -strict $sharedFs] \
+                && $sharedFs >= 8 && $sharedFs <= 24} {
+            set fontSize $sharedFs
+        }
+    }
+
     if {![file exists $settingsFile]} return
 
     if {[catch {
@@ -75,8 +125,35 @@ proc app::loadSettings {} {
                 }
                 docsRoot   { set docsRoot $val }
                 geometry   { variable savedGeometry $val }
+                tocSyncSuppressMs {
+                    if {[string is integer -strict $val] \
+                            && $val >= 0 && $val <= 5000} {
+                        variable tocSyncSuppressMs $val
+                    }
+                }
                 bookmarks  { set bookmarks $val }
                 recentDirs { set recentDirs $val }
+                recentFiles {
+                    variable recentFiles
+                    set recentFiles {}
+                    foreach f $val {
+                        if {[file exists $f]} { lappend recentFiles $f }
+                    }
+                }
+                searchHistory  { set ::app::searchHistory  $val }
+                replaceHistory { set ::app::replaceHistory $val }
+                filePos    {
+                    variable scrollPos
+                    foreach pair $val {
+                        if {[llength $pair] == 2} {
+                            lassign $pair f y
+                            # Nur wenn Datei noch existiert
+                            if {[file exists $f]} {
+                                set scrollPos($f) $y
+                            }
+                        }
+                    }
+                }
                 theme      {
                     if {$val in [mdstack::theme::names]} {
                         set theme $val
@@ -207,3 +284,67 @@ proc app::openRecentDir {dir} {
     app::goHome
 }
 
+
+# ============================================================
+# Recent Files (max 15)
+# ============================================================
+namespace eval app {
+    variable recentFiles {}
+}
+
+proc app::addRecentFile {file} {
+    variable recentFiles
+    set file [file normalize $file]
+
+    # Duplikate raus
+    set newList {}
+    foreach f $recentFiles {
+        if {$f ne $file} { lappend newList $f }
+    }
+
+    # Vorne einfuegen, max 15
+    set recentFiles [lrange [linsert $newList 0 $file] 0 14]
+    app::updateRecentFilesMenu
+}
+
+proc app::updateRecentFilesMenu {} {
+    variable recentFiles
+    if {![winfo exists .menubar.file.recentFiles]} return
+
+    .menubar.file.recentFiles delete 0 end
+
+    if {[llength $recentFiles] == 0} {
+        .menubar.file.recentFiles add command -label "(empty)" -state disabled
+        return
+    }
+
+    foreach f $recentFiles {
+        # Dateinamen kuerzen, aber Pfad zeigen
+        set tail [file tail $f]
+        set dir  [file dirname $f]
+        if {[string length $dir] > 40} {
+            set dir "...[string range $dir end-37 end]"
+        }
+        set lbl "$tail   ($dir)"
+        .menubar.file.recentFiles add command -label $lbl \
+            -command [list app::openRecentFile $f]
+    }
+}
+
+proc app::openRecentFile {file} {
+    if {![file exists $file]} {
+        set ::app::statusText "Datei nicht gefunden: $file"
+        # Aus der Liste streichen
+        variable recentFiles
+        set recentFiles [lsearch -all -inline -not -exact $recentFiles $file]
+        app::updateRecentFilesMenu
+        return
+    }
+    # Falls die Datei in einem anderen docs-Ordner liegt: Tree neu laden
+    set parent [file dirname $file]
+    if {[file normalize $parent] ne [file normalize $::app::docsRoot]} {
+        # heuristisch: nutze parent als docs-Root
+        app::loadTree $parent
+    }
+    app::openFile $file 1
+}
