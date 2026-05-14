@@ -429,3 +429,107 @@ proc app::_scrollSyncTick {} {
     catch { app::syncTocFromScroll }
     catch { app::trackScrollPos }
 }
+
+# ============================================================
+# Cross-App Kontextmenue (Phase-3)
+# ============================================================
+#
+# Erweitert das bestehende Viewer-Kontextmenue (von mdhelp_clipboard)
+# um Cross-App-Eintraege: "Im Glossar nachschlagen" und (sobald
+# unterstuetzt) "Im Man-Viewer suchen". Nutzt tcldocs::launcher zur
+# App-Suche und zum Starten.
+#
+# Wird einmalig nach mdhelp_clipboard::setupContextMenu aufgerufen.
+# Items sind statisch im Menue; der Such-Term wird zur Klick-Zeit
+# dynamisch ueber die aktuelle Selektion oder das Wort unter dem
+# Cursor ermittelt.
+
+proc app::extendViewerContextMenu {menuName textWidget} {
+    if {![winfo exists $menuName]} return
+
+    $menuName add separator
+
+    # Cross-App: tcldocs::launcher ist Voraussetzung
+    if {[catch {package present tcldocs::launcher}]} {
+        $menuName add command \
+            -label "Cross-App (tcldocs::launcher fehlt)" \
+            -state disabled
+        return
+    }
+
+    # Glossar
+    set glossPath [::tools::findApp glossary]
+    if {$glossPath ne ""} {
+        $menuName add command \
+            -label "Im Glossar nachschlagen" \
+            -command [list app::_lookupInGlossary $textWidget]
+    } else {
+        $menuName add command \
+            -label "Im Glossar nachschlagen (Glossary nicht gefunden)" \
+            -state disabled
+    }
+
+    # nroffide / man-viewer (nutzt --search sobald nroffide das hat)
+    set nroffPath [::tools::findApp nroffide]
+    if {$nroffPath ne ""} {
+        $menuName add command \
+            -label "Im Man-Viewer suchen" \
+            -command [list app::_lookupInManViewer $textWidget]
+    }
+}
+
+# Term aus Selektion oder Wort am Cursor
+proc app::_pickContextTerm {w} {
+    # Selektion hat Vorrang
+    if {![catch {$w get sel.first sel.last} sel] && [string trim $sel] ne ""} {
+        return [string trim $sel]
+    }
+    # Fallback: Wort am insert-Cursor
+    set idx [$w index insert]
+    set wStart [$w index "${idx} wordstart"]
+    set wEnd   [$w index "${idx} wordend"]
+    set word [$w get $wStart $wEnd]
+    return [string trim $word]
+}
+
+# In Glossar oeffnen
+proc app::_lookupInGlossary {textWidget} {
+    set term [app::_pickContextTerm $textWidget]
+    if {$term eq ""} {
+        set ::app::statusText "Glossar: kein Suchterm (markieren oder auf Wort klicken)"
+        return
+    }
+    set glossPath [::tools::findApp glossary]
+    if {$glossPath eq ""} {
+        tk_messageBox -type ok -icon warning \
+            -message "Glossary-App nicht gefunden."
+        return
+    }
+    if {[catch {::tools::launchApp $glossPath --search $term} err]} {
+        tk_messageBox -type ok -icon error \
+            -message "Konnte Glossary nicht starten: $err"
+        return
+    }
+    set ::app::statusText "Glossar geoeffnet mit: $term"
+}
+
+# In Man-Viewer / nroffide oeffnen
+proc app::_lookupInManViewer {textWidget} {
+    set term [app::_pickContextTerm $textWidget]
+    if {$term eq ""} {
+        set ::app::statusText "Man-Viewer: kein Suchterm"
+        return
+    }
+    set nroffPath [::tools::findApp nroffide]
+    if {$nroffPath eq ""} {
+        tk_messageBox -type ok -icon warning \
+            -message "Man-Viewer/nroffide nicht gefunden."
+        return
+    }
+    if {[catch {::tools::launchApp $nroffPath --search $term} err]} {
+        tk_messageBox -type ok -icon error \
+            -message "Konnte Man-Viewer nicht starten: $err"
+        return
+    }
+    set ::app::statusText "Man-Viewer geoeffnet mit: $term"
+}

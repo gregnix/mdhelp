@@ -2,8 +2,16 @@
 # test_mdindexgen.tcl -- Tests fuer mdindexgen (Index-Generator)
 #
 # Aufruf: tclsh test_mdindexgen.tcl
+#
+# Skip-on-missing: Wenn das Paket mdindexgen nicht installiert ist
+# (z.B. weil es nicht zum mdhelp4-Kern gehoert sondern als optionales
+# Tool gepflegt wird), wird die Test-Suite mit Exit 2 uebersprungen.
 
-package require mdindexgen 0.1
+if {[catch {package require mdindexgen 0.1} err]} {
+    puts "SKIP: Paket 'mdindexgen' nicht verfuegbar ($err)"
+    puts "      Diese Test-Suite testet einen optionalen Indexer."
+    exit 2
+}
 
 set pass 0
 set fail 0
@@ -22,7 +30,14 @@ proc assert {name cond} {
 }
 
 # Temporaeres Testverzeichnis
-set testDir [file join [file normalize ~] _test_indexgen_[pid]]
+set tmpBase /tmp
+if {[info exists ::env(TMPDIR)] && $::env(TMPDIR) ne ""} {
+    set tmpBase $::env(TMPDIR)
+}
+if {![file writable $tmpBase]} {
+    set tmpBase [pwd]
+}
+set testDir [file join $tmpBase _test_indexgen_[pid]]
 
 proc setupTestDir {} {
     upvar testDir testDir

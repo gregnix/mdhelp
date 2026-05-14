@@ -488,6 +488,10 @@ proc app::buildUI {} {
     mdhelp_clipboard::setupBindings $t
     mdhelp_clipboard::setupContextMenu $t
 
+    # Cross-App-Items ans Kontextmenue anhaengen (Phase-3).
+    # Erlaubt "Im Glossar nachschlagen" etc. via tcldocs::launcher.
+    app::extendViewerContextMenu ${t}_ctx $t
+
     # Disable PDF button if not available
     if {!$::hasPdf} {
         .toolbar.pdf state disabled

@@ -8,6 +8,7 @@
 set testDir [file dirname [info script]]
 set totalPass 0
 set totalFail 0
+set totalSkip 0
 set failedSuites {}
 set skipDepCheck 0
 
@@ -128,16 +129,29 @@ foreach testFile [lsort [glob -nocomplain [file join $testDir test_*.tcl]]] {
     puts $output
     puts ""
 
-    if {$rc != 0} {
-        lappend failedSuites $name
-        incr totalFail
-    } else {
+    # Exit-Codes:
+    #   0  -> pass
+    #   2  -> skip (Convention: optionale Dependency fehlt, kein Fehler)
+    #   *  -> fail
+    if {$rc == 0} {
         incr totalPass
+    } else {
+        # exec catch liefert errorCode mit CHILDSTATUS pid exitCode
+        set ec ""
+        if {[info exists ::errorCode] && [lindex $::errorCode 0] eq "CHILDSTATUS"} {
+            set ec [lindex $::errorCode 2]
+        }
+        if {$ec eq "2"} {
+            incr totalSkip
+        } else {
+            lappend failedSuites $name
+            incr totalFail
+        }
     }
 }
 
 puts "============================================"
-puts "  Total: $totalPass suites passed, $totalFail failed"
+puts "  Total: $totalPass passed, $totalSkip skipped, $totalFail failed"
 puts "============================================"
 if {[llength $failedSuites] > 0} {
     puts "\n  Failed suites:"

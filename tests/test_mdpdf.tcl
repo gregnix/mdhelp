@@ -3,15 +3,29 @@
 #
 # Generiert PDFs und prueft: Dateigroesse, PDF-Header, Seitenzahl.
 # Aufruf: tclsh test_mdpdf.tcl
+#
+# Skip-on-missing: ohne pdf4tcl wird die Suite mit Exit 2 uebersprungen.
 
-package require pdf4tcl
+if {[catch {package require pdf4tcl} err]} {
+    puts "SKIP: pdf4tcl nicht verfuegbar ($err)"
+    exit 2
+}
 package require mdstack::parser 0.2
 package require mdstack::pdf 0.2
 
 set pass 0
 set fail 0
 set errors {}
-set tmpDir [file join [file normalize ~] _test_mdpdf_[pid]]
+# Temp-Dir: bevorzugt TMPDIR (POSIX-Standard), sonst /tmp, sonst pwd.
+# Frueher unter $HOME -- problematisch in restriktiven Umgebungen.
+set tmpBase /tmp
+if {[info exists ::env(TMPDIR)] && $::env(TMPDIR) ne ""} {
+    set tmpBase $::env(TMPDIR)
+}
+if {![file writable $tmpBase]} {
+    set tmpBase [pwd]
+}
+set tmpDir [file join $tmpBase _test_mdpdf_[pid]]
 file mkdir $tmpDir
 
 proc assert {name cond} {

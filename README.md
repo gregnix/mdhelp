@@ -6,47 +6,48 @@ Built on [mdstack](https://github.com/gregnix/mdstack) (Tcl/Tk).
 
 ## Setup
 
-mdhelp4 hat keine vendored Dependencies — alle externen Module werden
-via `package require` ueber Tcls Standard-Mechanismus geladen.
+mdhelp has no vendored dependencies — all external modules are loaded
+via `package require` through Tcl's standard mechanism.
 
-### Voraussetzungen installieren
+### Installing prerequisites
 
-| Modul | Quelle | Install-Befehl |
-|-------|--------|----------------|
+| Module | Source | Install command |
+|--------|--------|-----------------|
 | `docir` | https://github.com/gregnix/docir | `cd docir && sudo make install` |
 | `mdstack` | https://github.com/gregnix/mdstack | `cd mdstack && sudo make install` |
 | `pdf4tcllib` | https://github.com/gregnix/pdf4tcllib | `cd pdf4tcllib && sudo make install` |
-| `pdf4tcl` (3rd-party) | https://sourceforge.net/projects/pdf4tcl/ | manuell — siehe unten |
+| `pdf4tcl` (third-party) | https://sourceforge.net/projects/pdf4tcl/ | manual — see below |
 | DejaVu fonts | OS package manager | `sudo apt install ttf-dejavu` |
 
-`make install` legt die Module nach `/usr/local/lib/tcltk/<repo>/` ab.
-Das ist Standard-Pfad in Tcls `auto_path` — kein weiteres Setup noetig.
+`make install` places the modules under `/usr/local/lib/tcltk/<repo>/`.
+That is a standard directory in Tcl's `auto_path` — no further setup
+is needed.
 
-### Schnell-Setup (Linux)
+### Quick setup (Linux)
 
 ```bash
-# Greg's Repos klonen
+# Clone the repositories
 mkdir -p ~/src
 git clone https://github.com/gregnix/docir       ~/src/docir
 git clone https://github.com/gregnix/mdstack     ~/src/mdstack
 git clone https://github.com/gregnix/pdf4tcllib  ~/src/pdf4tcllib
 
-# Installieren (in /usr/local/lib/tcltk/<repo>/)
+# Install (into /usr/local/lib/tcltk/<repo>/)
 (cd ~/src/docir       && sudo make install)
 (cd ~/src/mdstack     && sudo make install)
 (cd ~/src/pdf4tcllib  && sudo make install)
 
-# 3rd-party: pdf4tcl
-# Download von https://sourceforge.net/projects/pdf4tcl/
+# Third-party: pdf4tcl
+# Download from https://sourceforge.net/projects/pdf4tcl/
 sudo cp -r pdf4tcl-0.9.4.x /usr/local/lib/tcltk/pdf4tcl
 
-# DejaVu-Schriften (fuer PDF-Export):
+# DejaVu fonts (for PDF export):
 sudo apt install ttf-dejavu       # Debian/Ubuntu
 sudo dnf install dejavu-fonts-all # Fedora
 sudo pacman -S ttf-dejavu         # Arch
 ```
 
-### User-Install (ohne sudo)
+### User install (no sudo)
 
 ```bash
 (cd ~/src/docir       && make install-user)   # ~/lib/tcltk/docir/
@@ -55,7 +56,7 @@ sudo pacman -S ttf-dejavu         # Arch
 echo 'export TCLLIBPATH="$HOME/lib/tcltk/docir $HOME/lib/tcltk/mdstack $HOME/lib/tcltk/pdf4tcllib $HOME/lib/tcltk/pdf4tcl"' >> ~/.profile
 ```
 
-### Verifikation
+### Verification
 
 ```bash
 tclsh -c '

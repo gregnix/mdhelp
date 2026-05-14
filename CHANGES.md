@@ -3,95 +3,162 @@
 All notable changes to mdhelp 4 are documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
-## 2026-05-13 -- Migrate tools_external to tcldocs::launcher
+## 2026-05-14 — Cross-app context menu (Phase 3)
 
-**Affected consumers:** keine User-API-Aenderung. Build/Install:
-zusaetzliche Dependency `tcldocs-launcher 0.1` (siehe Repo
-`tcldocs-launcher/`).
+**Affected consumers:** UI extension, no API change.
 
-### Removed
+### Added
 
-- **`app/tools_external.tcl`** (267 LOC) -- Logik in eigenes Mini-Repo
-  `tcldocs-launcher` extrahiert. Identische API (`::tools::findApp`,
-  `::tools::launchApp`, `::tools::buildToolsMenu`, ...), jetzt via
-  `package require tcldocs::launcher`. War vorher in man-viewer und
-  mdhelp4 parallel gepflegt (echte Duplikation).
+- **Right-click in the viewer** now shows cross-app entries in the
+  context menu:
+    - "Look up in glossary" — opens tcltk-glossary with the
+      selected word (or the word at the cursor) as a search term.
+    - "Search in man-viewer" — analogous for nroffide (once
+      man-viewer supports a `--search` option).
+- Items are only shown when the target app is found via
+  `tcldocs::launcher::findApp`. If the module is missing, the menu
+  shows a disabled hint.
+
+### Implementation
+
+- New procs in `app/mdhelp_ui.tcl`:
+  `app::extendViewerContextMenu`, `app::_pickContextTerm`,
+  `app::_lookupInGlossary`, `app::_lookupInManViewer`.
+- `app/mdhelp.tcl` calls `app::extendViewerContextMenu` after the
+  existing `mdhelp_clipboard::setupContextMenu` — extending the
+  existing menu with new items rather than binding a parallel menu.
+
+### Requirements
+
+- `tcldocs::launcher 0.1` — already a dependency since the Phase-2
+  migration.
+- `tcltk-glossary` with the `--search TERM` CLI — supported in
+  `glossary_gui.tcl` since 2026-05-14.
+
+## 2026-05-14 — Test stabilization (skip-on-missing, TMPDIR)
+
+**Affected consumers:** no user-API change. Test behavior: some
+suites that were previously red now skip cleanly with exit code 2.
+
+### Fixed
+
+- **`tests/test_mdindexgen.tcl`** — skip-on-missing when the optional
+  package `mdindexgen` is not installed. Instead of a hard failure,
+  exit code 2 with an explanatory message.
+- **`tests/test_mdpdf.tcl`** — skip-on-missing when `pdf4tcl` is
+  absent. Plus: temp directory now uses `$TMPDIR` (fallback `/tmp`,
+  then `[pwd]`) instead of `~/_test_mdpdf_$pid/`. Previously a
+  permission error in restricted environments with a non-writable
+  `$HOME`.
+- **`tests/test_mdindexgen.tcl`** — same TMPDIR logic as
+  `test_mdpdf`, for the case the package is installed later.
 
 ### Changed
 
-- **`app/mdhelp.tcl`** -- Zeile 922 (`source tools_external.tcl`)
-  ersetzt durch `package require tcldocs::launcher`.
-- **`build.tcl`** -- `tcldocs-launcher` in die Liste der externen Repos
-  aufgenommen die ins VFS kopiert werden. ENV-Override:
+- **`tests/run_all_tests.tcl`** — the test runner now distinguishes
+  exit code 2 (skip) from real failures. Statistics show
+  `Total: N passed, M skipped, K failed`.
+
+### Background
+
+The 2026-05-14 test-runner report showed two mdhelp suites red:
+`test_mdindexgen` (package missing) and `test_mdpdf` (temp path
+under HOME). Both were environment issues, not real bugs.
+
+## 2026-05-13 — Migrate `tools_external` to `tcldocs::launcher`
+
+**Affected consumers:** no user-API change. Build / install: an
+additional dependency `tcldocs-launcher 0.1` (see the
+`tcldocs-launcher/` repository).
+
+### Removed
+
+- **`app/tools_external.tcl`** (267 LOC) — logic extracted into its
+  own mini-repository `tcldocs-launcher`. Identical API
+  (`::tools::findApp`, `::tools::launchApp`,
+  `::tools::buildToolsMenu`, …), now loaded via
+  `package require tcldocs::launcher`. Previously maintained in
+  parallel in man-viewer and mdhelp (true duplication).
+
+### Changed
+
+- **`app/mdhelp.tcl`** — line 922 (`source tools_external.tcl`)
+  replaced by `package require tcldocs::launcher`.
+- **`build.tcl`** — `tcldocs-launcher` added to the list of external
+  repositories copied into the VFS. ENV override:
   `TCLDOCS_LAUNCHER_HOME`.
 
-## 2026-05-13 -- Migrate shared_config to tcldocs::config
+## 2026-05-13 — Migrate `shared_config` to `tcldocs::config`
 
-**Affected consumers:** keine User-API-Aenderung. Apps die mdhelp4
-extern aufrufen brauchen nichts anzupassen. Build/Install: zusaetzliche
-Dependency `tcldocs-config 0.1` (siehe Repo `tcldocs-config/`).
+**Affected consumers:** no user-API change. Apps that call mdhelp
+externally need no adjustments. Build / install: an additional
+dependency `tcldocs-config 0.1` (see the `tcldocs-config/`
+repository).
 
 ### Removed
 
-- **`app/shared_config.tcl`** (132 LOC) -- Logik in eigenes Mini-Repo
-  `tcldocs-config` extrahiert. Identische API (`::tcldocs::path`,
-  `::tcldocs::loadShared`, `::tcldocs::saveShared`, `::tcldocs::getShared`,
-  `::tcldocs::setShared`), jetzt via `package require tcldocs::config`
-  geladen.
+- **`app/shared_config.tcl`** (132 LOC) — logic extracted into its
+  own mini-repository `tcldocs-config`. Identical API
+  (`::tcldocs::path`, `::tcldocs::loadShared`, `::tcldocs::saveShared`,
+  `::tcldocs::getShared`, `::tcldocs::setShared`), now loaded via
+  `package require tcldocs::config`.
 
 ### Changed
 
-- **`app/mdhelp.tcl`** -- Zeile 912 (`source shared_config.tcl`)
-  ersetzt durch `package require tcldocs::config`.
-- **`build.tcl`** -- `tcldocs-config` in die Liste der externen Repos
-  aufgenommen die ins VFS kopiert werden (`apptm/tcldocs/config-0.1.tm`).
-  ENV-Override: `TCLDOCS_CONFIG_HOME`.
+- **`app/mdhelp.tcl`** — line 912 (`source shared_config.tcl`)
+  replaced by `package require tcldocs::config`.
+- **`build.tcl`** — `tcldocs-config` added to the list of external
+  repositories copied into the VFS (`apptm/tcldocs/config-0.1.tm`).
+  ENV override: `TCLDOCS_CONFIG_HOME`.
 
-### Konsumenten der API innerhalb mdhelp4
+### Consumers of the API inside mdhelp
 
-Unveraendert: `app/mdhelp_settings.tcl` (theme/fontSize),
-`app/deepl_helper.tcl` (deeplApiKey, deeplUsePro). Direktzugriff auf
-`::tcldocs::cache` in `deepl_helper.tcl::47` funktioniert weiterhin
-(Namespace-Variable im Modul).
+Unchanged: `app/mdhelp_settings.tcl` (theme / fontSize),
+`app/deepl_helper.tcl` (deeplApiKey, deeplUsePro). Direct access to
+`::tcldocs::cache` in `deepl_helper.tcl:47` continues to work
+(namespace variable in the module).
 
-### Build-Hinweis
+### Build note
 
-Beim Build aus dem Source-Tree muss `tcldocs-config` als Sibling-Repo
-verfuegbar sein (oder via `TCLDOCS_CONFIG_HOME` Env-Override). Default-
-Suchpfad: `../tcldocs-config/lib/tm/`.
+When building from the source tree, `tcldocs-config` must be
+available as a sibling repository (or via the
+`TCLDOCS_CONFIG_HOME` env override). Default search path:
+`../tcldocs-config/lib/tm/`.
 
-### Hintergrund
+### Background
 
-Die Migration ist Teil von Phase 1 der Ökosystem-Aufräumung
-(siehe `reviews/2026-05-13-markdown-gesamtbegutachtung.md` und Top-Level
-`README.md` im Markdown-Baum). Ziel: cross-app shared settings als
-einmaliges Modul, nicht in jeder App separat. Naechste Schritte:
-gleiche Migration in `tcltk-glossary` und `man-viewer`.
+This migration is part of Phase 1 of the ecosystem cleanup
+(see the 2026-05-13 review and the top-level `README.md`). Goal:
+cross-app shared settings as a single module rather than duplicated
+in each app. Next steps: the same migration in `tcltk-glossary` and
+`man-viewer`.
 
 ## 2026-05-13
 
 ### Changed
 
-- **TOC-Sync-Suppress-Dauer konfigurierbar.** Die 500 ms Hardcoded-Wert in
-  `mdhelp_ui.tcl::onTocSelect` ist jetzt eine Namespace-Variable
-  `::app::tocSyncSuppressMs` (Default 500). Persistiert via
-  `~/.mdhelp.rc` -- Bounds 0..5000 (0 = Suppress deaktiviert).
-  Hintergrund: siehe `reviews/2026-05-13-mdhelp4-toc-selection-sync.md`.
+- **TOC-sync suppress duration is configurable.** The 500 ms
+  hardcoded value in `mdhelp_ui.tcl::onTocSelect` is now a namespace
+  variable `::app::tocSyncSuppressMs` (default 500). Persisted via
+  `~/.mdhelp.rc` — bounds 0..5000 (0 = suppress disabled).
+  Background: see the 2026-05-13 review of TOC-selection sync.
 
 ### Added
 
-- **`tests/test_toc_suppress.tcl`** -- Logik-Test fuer TOC-Sync-Suppress.
-  Verifiziert: (1) Suppress unterdrueckt Sync sofort nach TOC-Klick,
-  (2) Sync laeuft nach Ablauf des Fensters wieder, (3) `SuppressMs=0`
-  deaktiviert Suppress (Legacy-Verhalten), (4) Bounds-Check 0..5000,
-  (5) Source-Code-Strukturen sind weiterhin vorhanden (white-box).
-  10 Tests, keine UI-Deps -- laeuft ohne Tk/mdstack/docir.
+- **`tests/test_toc_suppress.tcl`** — logic test for TOC-sync
+  suppress. Verifies: (1) suppress blocks sync immediately after a
+  TOC click, (2) sync resumes after the window elapses,
+  (3) `SuppressMs=0` disables suppress (legacy behavior),
+  (4) bounds check 0..5000, (5) source-code structures are still
+  present (white box). 10 tests, no UI dependencies — runs without
+  Tk / mdstack / docir.
 
-- **`tests/run_all_tests.tcl` Dep-Vorpruefung.** Pruefen ob `mdstack::parser`,
-  `docir`, `pdf4tcl` verfuegbar sind, **bevor** die Test-Suites einzeln
-  starten. Bei fehlenden required-Deps: klare Meldung mit Install-Hinweis
-  und exit code 2 (statt 6x "child process exited abnormally"-Trace).
-  Optional via `--skip-dep-check` ueberspringbar.
+- **`tests/run_all_tests.tcl` dependency pre-check.** Verifies
+  whether `mdstack::parser`, `docir`, `pdf4tcl` are available
+  **before** the test suites start individually. With missing
+  required deps: a clear message with install hints and exit code 2
+  (instead of six "child process exited abnormally" traces).
+  Optionally skipped via `--skip-dep-check`.
 
 ## 2026-05-08
 
