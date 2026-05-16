@@ -281,8 +281,8 @@ source [file join $appDir mdhelp_app.tcl]
         docir            docir-0.1.tm \
         mdstack          mdstack-0.1.tm \
         pdf4tcllib       pdf4tcllib-0.2.tm \
-        tcldocs-config   pkgIndex.tcl \
-        tcldocs-launcher pkgIndex.tcl]
+        tcldocs-config   tcldocs/config-0.1.tm \
+        tcldocs-launcher tcldocs/launcher-0.1.tm]
     set repoEnv [dict create \
         docir            DOCIR_HOME \
         mdstack          MDSTACK_HOME \
