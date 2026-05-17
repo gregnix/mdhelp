@@ -7,6 +7,15 @@
 # (z.B. weil es nicht zum mdhelp4-Kern gehoert sondern als optionales
 # Tool gepflegt wird), wird die Test-Suite mit Exit 2 uebersprungen.
 
+# TCLLIBPATH -> tcl::tm::path (siehe Kommentar in test_mdpdf.tcl)
+if {[info exists ::env(TCLLIBPATH)]} {
+    foreach p $::env(TCLLIBPATH) {
+        if {[file isdirectory $p]} {
+            ::tcl::tm::path add $p
+        }
+    }
+}
+
 if {[catch {package require mdindexgen 0.1} err]} {
     puts "SKIP: Paket 'mdindexgen' nicht verfuegbar ($err)"
     puts "      Diese Test-Suite testet einen optionalen Indexer."
@@ -29,15 +38,9 @@ proc assert {name cond} {
     }
 }
 
-# Temporaeres Testverzeichnis
-set tmpBase /tmp
-if {[info exists ::env(TMPDIR)] && $::env(TMPDIR) ne ""} {
-    set tmpBase $::env(TMPDIR)
-}
-if {![file writable $tmpBase]} {
-    set tmpBase [pwd]
-}
-set testDir [file join $tmpBase _test_indexgen_[pid]]
+# Temporaeres Testverzeichnis plattform-unabhaengig via docir::util
+package require docir::util
+set testDir [file join [docir::util::tmpdir] _test_indexgen_[pid]]
 
 proc setupTestDir {} {
     upvar testDir testDir

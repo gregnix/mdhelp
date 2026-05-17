@@ -59,8 +59,13 @@ proc app::onTocSelect {} {
 
 proc app::_findCurrentAnchor {} {
     set t [mdstack::viewer::widget $::app::viewerPath]
-    # Sichtbare Top-Zeile als Index ermitteln
-    if {[catch {set topIdx [$t index "@0,0"]} _]} { return "" }
+    # Sichtbare Top-Zeile als Index ermitteln.
+    # WICHTIG: nicht @0,0 nehmen, sondern @0,5 -- gibt 5 Pixel Toleranz.
+    # Sonst wandert die Selektion nach gotoAnchor "nach oben", weil der
+    # Anchor-Mark durch Font-Hoehe-Offset oft 1-2 Pixel ueber der ersten
+    # sichtbaren Pixelzeile steht und damit als "vorausgehender Abschnitt"
+    # gilt.
+    if {[catch {set topIdx [$t index "@0,5"]} _]} { return "" }
 
     # Alle Anchor-Marks einsammeln und nach Position sortieren
     set anchors {}

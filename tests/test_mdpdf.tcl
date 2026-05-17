@@ -6,6 +6,17 @@
 #
 # Skip-on-missing: ohne pdf4tcl wird die Suite mit Exit 2 uebersprungen.
 
+# TCLLIBPATH wird nur in auto_path uebernommen, nicht in tcl::tm::path.
+# Fuer Tcl-Module (.tm) muss tm::path explizit gesetzt sein. Wir nehmen
+# alle TCLLIBPATH-Eintraege auch in tm::path mit.
+if {[info exists ::env(TCLLIBPATH)]} {
+    foreach p $::env(TCLLIBPATH) {
+        if {[file isdirectory $p]} {
+            ::tcl::tm::path add $p
+        }
+    }
+}
+
 if {[catch {package require pdf4tcl} err]} {
     puts "SKIP: pdf4tcl nicht verfuegbar ($err)"
     exit 2
@@ -16,17 +27,9 @@ package require mdstack::pdf 0.2
 set pass 0
 set fail 0
 set errors {}
-# Temp-Dir: bevorzugt TMPDIR (POSIX-Standard), sonst /tmp, sonst pwd.
-# Frueher unter $HOME -- problematisch in restriktiven Umgebungen.
-set tmpBase /tmp
-if {[info exists ::env(TMPDIR)] && $::env(TMPDIR) ne ""} {
-    set tmpBase $::env(TMPDIR)
-}
-if {![file writable $tmpBase]} {
-    set tmpBase [pwd]
-}
-set tmpDir [file join $tmpBase _test_mdpdf_[pid]]
-file mkdir $tmpDir
+# Temp-Dir plattform-unabhaengig via docir::util
+package require docir::util
+set tmpDir [docir::util::mktmpdir _test_mdpdf]
 
 proc assert {name cond} {
     upvar pass pass fail fail errors errors

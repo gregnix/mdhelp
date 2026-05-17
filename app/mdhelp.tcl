@@ -37,7 +37,12 @@ package require mdstack::contextmenu 0.1
 package require mdhelp_search    0.2
 package require mdhelp_history   0.1
 package require mdhelp_clipboard 0.1
-package require mdindexgen       0.1
+# mdindexgen ist optional: nur fuer Search-Index. Skip-on-missing,
+# damit mdhelp auch ohne dieses Modul startet.
+set ::hasIndexgen 0
+if {![catch {package require mdindexgen 0.1}]} {
+    set ::hasIndexgen 1
+}
 
 # PDF optional (pdf4tcl not available everywhere)
 set ::hasPdf 0
@@ -644,6 +649,12 @@ proc app::generateIndex {} {
         return
     }
 
+    if {!$::hasIndexgen} {
+        tk_messageBox -icon info -title "Index" \
+            -message "mdindexgen package not installed.\nIndex generation unavailable."
+        return
+    }
+
     if {[catch {
         mdindexgen::scan $docsRoot
     } err]} {
@@ -726,7 +737,7 @@ proc app::exportHtml {} {
         set title [dict get $currentAst meta title]
     }
 
-    # 3. Export mit optionalem CSS
+    # 3. Export mit optionalem CSS und Math/Mermaid-Rendering
     set exportArgs [list \
         -title $title \
         -toc 1 \
@@ -734,6 +745,13 @@ proc app::exportHtml {} {
     if {$cssPath ne ""} {
         lappend exportArgs -css $cssPath
     }
+    # Math/Mermaid: aus dem Stylesheet-Dialog uebernommen.
+    # Default ist an (Checkboxen waren angekreuzt). Wenn nicht
+    # gesetzt: konservativ aus.
+    set enableMath    [expr {[info exists ::_html_enable_math]    ? $::_html_enable_math    : 0}]
+    set enableMermaid [expr {[info exists ::_html_enable_mermaid] ? $::_html_enable_mermaid : 0}]
+    lappend exportArgs -enableMath    $enableMath
+    lappend exportArgs -enableMermaid $enableMermaid
 
     if {[catch {
         mdstack::html::export $currentAst $outFile {*}$exportArgs
@@ -808,6 +826,31 @@ proc app::_chooseHtmlStyle {} {
     ttk::label .htmlstyle.f.hint -text "Tip: weitere CSS-Dateien in styles/ werden automatisch erkannt." \
         -foreground "#666" -font {TkDefaultFont 8}
     pack .htmlstyle.f.hint -anchor w -pady {0 12}
+
+    # Math + Mermaid Checkboxen (KaTeX/Mermaid CDN-Scripts einbinden).
+    # Default an, weil Render-Markup im Body sowieso erzeugt wird;
+    # ohne JS bleiben Math/Mermaid einfach Plain-Text statt grafisch.
+    ttk::labelframe .htmlstyle.f.render -text "Inhalts-Rendering" \
+        -padding 6
+    pack .htmlstyle.f.render -fill x -pady {0 12}
+
+    set ::_html_enable_math 1
+    set ::_html_enable_mermaid 1
+
+    ttk::checkbutton .htmlstyle.f.render.math \
+        -text "Math-Formeln mit KaTeX rendern (\$E=mc^2\$, \$\$...\$\$)" \
+        -variable ::_html_enable_math
+    pack .htmlstyle.f.render.math -anchor w
+
+    ttk::checkbutton .htmlstyle.f.render.mermaid \
+        -text "Mermaid-Diagramme rendern (\`\`\`mermaid Bloecke)" \
+        -variable ::_html_enable_mermaid
+    pack .htmlstyle.f.render.mermaid -anchor w
+
+    ttk::label .htmlstyle.f.render.hint \
+        -text "Hinweis: Browser laedt KaTeX/Mermaid von CDN (Internet noetig)." \
+        -foreground "#666" -font {TkDefaultFont 8}
+    pack .htmlstyle.f.render.hint -anchor w -pady {4 0}
 
     ttk::frame .htmlstyle.f.btns
     pack .htmlstyle.f.btns -fill x
