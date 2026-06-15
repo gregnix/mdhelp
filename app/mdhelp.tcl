@@ -525,7 +525,7 @@ source [file join [file dirname [info script]] mdhelp_ui.tcl]
 # ============================================================
 proc app::showAbout {} {
     set version     "0.2"
-    set lastchanged "2026-05-06"
+    set lastchanged "2026-06-14"
 
     # ============================================================
     # Stack-Komponenten erkennen: Adapter vs. Legacy
@@ -704,6 +704,7 @@ proc app::exportPdf {} {
         set pages [mdstack::pdf::export $currentAst $outFile \
             -title $title \
             -fontsize $::app::fontSize \
+            -cid 1 \
             -root [file dirname $currentFile]]
         set ::app::statusText "PDF exported: $outFile ($pages pages)"
     } err]} {
