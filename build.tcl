@@ -278,7 +278,7 @@ source [file join $appDir mdhelp_app.tcl]
         tcldocs-config   {lib tm} \
         tcldocs-launcher {lib tm}]
     set repoMarker [dict create \
-        docir            docir-0.1.tm \
+        docir            docir-0.1.1.tm \
         mdstack          mdstack-0.1.tm \
         pdf4tcllib       pdf4tcllib-0.2.tm \
         tcldocs-config   tcldocs/config-0.1.tm \
