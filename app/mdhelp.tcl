@@ -19,9 +19,50 @@
 #   wish mdhelp.tcl ?docs-directory?
 #   tclsh mdhelp.tcl ?docs-directory?
 package require Tk 8.6-
-
 set appDir [file dirname [file normalize [info script]]]
-::tcl::tm::path add [file join $appDir .. lib tm]
+namespace eval ::app {}
+
+# Eigene Module + Diagramm-Engine (tclutils/tuflow) für PDF/HTML/Tk-Export.
+proc ::app::_addTmPathIfDir {dir} {
+    if {$dir ne "" && [file isdirectory $dir]} {
+        catch { tcl::tm::path add $dir }
+    }
+}
+::app::_addTmPathIfDir [file join $appDir .. lib tm]
+::app::_addTmPathIfDir [file normalize [file join $appDir .. .. libs tclutils lib tm]]
+::app::_addTmPathIfDir [file normalize [file join $appDir .. .. .. tclutils lib tm]]
+if {[info exists env(HOME)]} {
+    ::app::_addTmPathIfDir [file join $env(HOME) lib tcltk tclutils lib tm]
+    ::app::_addTmPathIfDir [file join $env(HOME) lib tcltk tkutils lib tm]
+}
+
+# --- Konfiguration ----------------------------------------------------------
+# Echter Font für Flow-/Mermaid-Diagramme im PDF-Export.
+#   ""  = 6x8-Bitmap (Default, funktioniert ohne .ttf im Repo)
+# Nur setzen wenn die Datei existiert — sonst schlägt renderPng fehl und docir
+# fällt still auf einen Code-Block zurück (docir::diag meldet das).
+namespace eval ::app {
+    variable flowFont ""
+
+    proc resolveFlowFont {appDir} {
+        set cands [list \
+            [file join $appDir .. fonts DejaVuSans.ttf] \
+            /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+            /usr/share/fonts/TTF/DejaVuSans.ttf \
+        ]
+        if {[info exists ::env(HOME)]} {
+            lappend cands [file join $::env(HOME) lib tcltk fonts DejaVuSans.ttf]
+        }
+        if {[info exists ::env(MERMAID_FLOWFONT)] && $::env(MERMAID_FLOWFONT) ne ""} {
+            lappend cands $::env(MERMAID_FLOWFONT)
+        }
+        foreach cand $cands {
+            if {[file readable $cand]} { return $cand }
+        }
+        return ""
+    }
+}
+set ::app::flowFont [::app::resolveFlowFont $appDir]
 
 package require mdstack::parser     0.2
 package require mdstack::model      0.1
@@ -671,6 +712,46 @@ proc app::generateIndex {} {
 }
 
 # ============================================================
+# Export-Diagnose (docir::diag — stille Diagramm-Fallbacks sichtbar machen)
+# ============================================================
+proc app::initExportDiag {} {
+    if {[catch {package require docir::diag 0.1}]} { return 0 }
+    set mode warn
+    if {[info exists ::env(MDHELP_DIAG_STRICT)] && $::env(MDHELP_DIAG_STRICT) ne "" \
+            && $::env(MDHELP_DIAG_STRICT) ni {0 false no}} {
+        set mode strict
+    }
+    docir::diag::configure -mode $mode -channel stderr
+    docir::diag::reset
+    return 1
+}
+
+proc app::finishExportDiags {what outFile} {
+    if {[catch {package present docir::diag}]} { return }
+    set entries [docir::diag::log]
+    if {![llength $entries]} { return }
+    set n [llength $entries]
+    set lines [list \
+        "Beim $what sind $n Diagramm-Block(s) fehlgeschlagen:" ""]
+    foreach e $entries {
+        lassign $e code msg
+        lappend lines "  • $msg"
+    }
+    lappend lines "" \
+        "Ausgabedatei: $outFile" \
+        "" \
+        "Die Datei wurde trotzdem geschrieben. Betroffene Diagramme erscheinen oft als normaler Code-Block — das sieht aus wie Erfolg, ist es aber nicht." \
+        "" \
+        "Typische Ursachen: tclutils::tuflow fehlt (Starpack neu bauen), ungültiger flowFont, Parse-Fehler im Diagramm." \
+        "" \
+        "Details auch auf stderr / in der Konsole. Env MDHELP_DIAG_STRICT=1 bricht den Export ab."
+    set body [join $lines \n]
+    set ::app::statusText "$what: $n Diagramm-Warnung(en) — Details im Dialog"
+    tk_messageBox -icon warning -title "Export — Diagramm-Warnungen" -message $body
+    puts stderr "\n=== mdhelp $what — docir::diag ===\n$body\n"
+}
+
+# ============================================================
 # PDF Export
 # ============================================================
 proc app::exportPdf {} {
@@ -700,13 +781,21 @@ proc app::exportPdf {} {
         set title [dict get $currentAst meta title]
     }
 
+    set flowFont [expr {[info exists ::app::flowFont] ? $::app::flowFont : ""}]
+    if {$flowFont ne "" && ![file readable $flowFont]} { set flowFont "" }
+
+    set pdfArgs [list \
+        -title $title \
+        -fontsize $::app::fontSize \
+        -cid 1 \
+        -root [file dirname $currentFile]]
+    if {$flowFont ne ""} { lappend pdfArgs -flowFont $flowFont }
+
+    app::initExportDiag
     if {[catch {
-        set pages [mdstack::pdf::export $currentAst $outFile \
-            -title $title \
-            -fontsize $::app::fontSize \
-            -cid 1 \
-            -root [file dirname $currentFile]]
+        set pages [mdstack::pdf::export $currentAst $outFile {*}$pdfArgs]
         set ::app::statusText "PDF exported: $outFile ($pages pages)"
+        app::finishExportDiags {PDF-Export} $outFile
     } err]} {
         tk_messageBox -icon error -title "PDF Error" \
             -message "Export failed:\n$err"
@@ -754,9 +843,11 @@ proc app::exportHtml {} {
     lappend exportArgs -enableMath    $enableMath
     lappend exportArgs -enableMermaid $enableMermaid
 
+    app::initExportDiag
     if {[catch {
         mdstack::html::export $currentAst $outFile {*}$exportArgs
         set ::app::statusText "HTML exported: $outFile (style: $styleLabel)"
+        app::finishExportDiags {HTML-Export} $outFile
     } err]} {
         tk_messageBox -icon error -title "HTML Error" \
             -message "Export failed:\n$err"
