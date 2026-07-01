@@ -110,9 +110,11 @@ proc resolveRepo {repoName envVar marker subdir} {
         }
     }
 
-    # 3. Marker pruefen — probiere $base direkt oder $base/<subdir>
+    # 3. Marker pruefen — probiere $base direkt oder $base/<subdir>.
+    #    Der Marker darf ein Glob-Muster sein (z.B. pdf4tcllib-*.tm), damit
+    #    Versions-Bumps den Build nicht brechen.
     foreach try [list $base [file join $base {*}$subdir]] {
-        if {[file exists [file join $try $marker]]} {
+        if {[llength [glob -nocomplain -directory $try $marker]] > 0} {
             ok "$repoName: $source"
             return $try
         }
@@ -278,11 +280,11 @@ source [file join $appDir mdhelp_app.tcl]
         tcldocs-config   {lib tm} \
         tcldocs-launcher {lib tm}]
     set repoMarker [dict create \
-        docir            docir-0.1.1.tm \
-        mdstack          mdstack-0.1.tm \
-        pdf4tcllib       pdf4tcllib-0.2.tm \
-        tcldocs-config   tcldocs/config-0.1.tm \
-        tcldocs-launcher tcldocs/launcher-0.1.tm]
+        docir            docir-*.tm \
+        mdstack          mdstack-*.tm \
+        pdf4tcllib       pdf4tcllib-*.tm \
+        tcldocs-config   tcldocs/config-*.tm \
+        tcldocs-launcher tcldocs/launcher-*.tm]
     set repoEnv [dict create \
         docir            DOCIR_HOME \
         mdstack          MDSTACK_HOME \
