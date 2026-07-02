@@ -82,26 +82,44 @@ proc app::openInEditor {file} {
         -command [list app::editorCmd $w wrap "`"]
     ttk::separator $w.tb.s1 -orient vertical
 
-    ttk::button $w.tb.h1 -text "H1" -width 3 \
-        -command [list app::editorCmd $w heading 1]
-    ttk::button $w.tb.h2 -text "H2" -width 3 \
-        -command [list app::editorCmd $w heading 2]
-    ttk::button $w.tb.h3 -text "H3" -width 3 \
-        -command [list app::editorCmd $w heading 3]
+    ttk::menubutton $w.tb.heading -text "Heading" -width 8 -menu $w.tb.heading.m
+    menu $w.tb.heading.m -tearoff 0
+    foreach lvl {1 2 3 4 5 6} {
+        $w.tb.heading.m add command -label "Heading $lvl  (H$lvl)" \
+            -command [list app::editorCmd $w heading $lvl]
+    }
     ttk::separator $w.tb.s2 -orient vertical
 
-    ttk::button $w.tb.list -text "List" -width 5 \
+    ttk::menubutton $w.tb.insert -text "Insert" -width 7 -menu $w.tb.insert.m
+    menu $w.tb.insert.m -tearoff 0
+    $w.tb.insert.m add command -label "Bullet list" \
         -command [list app::editorCmd $w prefix "- "]
-    ttk::button $w.tb.quote -text "Quote" -width 5 \
+    $w.tb.insert.m add command -label "Quote" \
         -command [list app::editorCmd $w prefix "> "]
-    ttk::button $w.tb.task -text "Task" -width 5 \
+    $w.tb.insert.m add command -label "Task item" \
         -command [list app::editorCmd $w checkbox]
+    $w.tb.insert.m add separator
+    $w.tb.insert.m add command -label "Code block" \
+        -command [list app::editorCmd $w codeblock tcl]
+    $w.tb.insert.m add command -label "Table (3x3)" \
+        -command [list app::editorCmd $w table 3 3]
+    $w.tb.insert.m add command -label "YAML front-matter" \
+        -command [list app::editorYamlInsert $w]
     ttk::separator $w.tb.s3 -orient vertical
 
-    ttk::button $w.tb.codeblk -text "```" -width 4 \
-        -command [list app::editorCmd $w codeblock tcl]
-    ttk::button $w.tb.table -text "Table" -width 7 \
-        -command [list app::editorCmd $w table 3 3]
+    # Diagram-Menubutton (Mermaid fenced blocks)
+    ttk::menubutton $w.tb.diag -text "Diagram" -width 8 \
+        -menu $w.tb.diag.m
+    menu $w.tb.diag.m -tearoff 0
+    foreach {type label} {
+        flowchart "Flowchart"  sequence "Sequence"
+        class     "Class"      state    "State"
+        mindmap   "Mindmap"    gantt    "Gantt"
+        pie       "Pie chart"
+    } {
+        $w.tb.diag.m add command -label $label \
+            -command [list app::editorDiagramInsert $w $type]
+    }
 
     # TIP-700 Span-Menubutton
     ttk::separator $w.tb.s3b -orient vertical
@@ -131,10 +149,6 @@ proc app::openInEditor {file} {
             -command [list app::editorDivInsert $w $cls]
     }
 
-    # YAML-Frontmatter
-    ttk::button $w.tb.yaml -text "YAML" -width 5 \
-        -command [list app::editorYamlInsert $w]
-
     ttk::separator $w.tb.s4 -orient vertical
     ttk::radiobutton $w.tb.mSplit -text "Split" \
         -variable ::app::edMode($w) -value "split" \
@@ -149,21 +163,29 @@ proc app::openInEditor {file} {
     pack $w.tb.save $w.tb.savclose $w.tb.close $w.tb.s0 \
          $w.tb.undo $w.tb.redo $w.tb.s0b \
          $w.tb.bold $w.tb.italic $w.tb.code $w.tb.s1 \
-         $w.tb.h1 $w.tb.h2 $w.tb.h3 $w.tb.s2 \
-         $w.tb.list $w.tb.quote $w.tb.task $w.tb.s3 \
-         $w.tb.codeblk $w.tb.table $w.tb.s3b \
-         $w.tb.span $w.tb.div $w.tb.yaml $w.tb.s4 \
-         $w.tb.mSplit $w.tb.mEdit $w.tb.mView \
+         $w.tb.heading $w.tb.s2 \
+         $w.tb.insert $w.tb.s3 \
+         $w.tb.diag $w.tb.s3b \
+         $w.tb.span $w.tb.div \
          -side left -padx 1
 
-    # Spell checking toggle (only if available)
+    # View-mode switch — pinned to the RIGHT so it stays reachable even when
+    # the toolbar is wider than the window (previously it was packed last on
+    # the left and slid off-screen on narrow windows).
+    pack $w.tb.mView $w.tb.mEdit $w.tb.mSplit -side right -padx 1
+    ttk::label $w.tb.mLbl -text "View:"
+    pack $w.tb.s4 -side right -padx {4 2}
+    pack $w.tb.mLbl -side right -padx {6 0}
+
+    # Spell checking toggle (only if available) — also pinned right
     if {$::app::hasSpellcheck} {
-        ttk::separator $w.tb.s5 -orient vertical
         set ::app::edSpell($w) 1
         ttk::checkbutton $w.tb.spell -text "ABC" \
             -variable ::app::edSpell($w) \
             -command [list app::editorToggleSpell $w]
-        pack $w.tb.s5 $w.tb.spell -side left -padx 1
+        ttk::separator $w.tb.s5 -orient vertical
+        pack $w.tb.spell -side right -padx 1
+        pack $w.tb.s5 -side right -padx {4 2}
     }
 
     # --- Status Bar ---
@@ -207,8 +229,12 @@ proc app::openInEditor {file} {
         mdspellcheck::attach $t_ed
     }
 
-    # State
-    set ::app::edMode($w) "split"
+    # State — start in the configured single-pane mode (not split) so the
+    # editor is usable on small windows; user can switch via the View control.
+    set mode0 $::app::editorDefaultMode
+    if {$mode0 ni {edit split preview}} { set mode0 "edit" }
+    set ::app::edMode($w) $mode0
+    mdstack::editorkit::setmode $kit $mode0
     set ::app::edDirty($w) 0
     set ::app::edKit($w) $kit
     set ::app::edOutline($w) $outline
@@ -406,6 +432,26 @@ proc app::editorYamlInsert {w} {
     set template "---\ntitle: \nsection: n\nmanual-section: Tcl Built-In Commands\n---\n\n"
     $t insert 1.0 $template
     $t mark set insert "1.7"
+}
+
+# Insert a Mermaid diagram skeleton (fenced ```mermaid block) at the cursor.
+proc app::editorDiagramInsert {w type} {
+    variable edKit
+    if {![info exists edKit($w)]} return
+    set ed [mdstack::editorkit::editor $edKit($w)]
+    set t [mdstack::text::_t $ed]
+
+    switch -- $type {
+        flowchart { set body "flowchart TD\n    A\[Start\] --> B\{Decision?\}\n    B -->|yes| C\[OK\]\n    B -->|no| D\[Stop\]" }
+        sequence  { set body "sequenceDiagram\n    Alice->>Bob: Request\n    Bob-->>Alice: Response" }
+        class     { set body "classDiagram\n    class Animal \{\n        +String name\n        +move()\n    \}\n    Animal <|-- Dog" }
+        state     { set body "stateDiagram-v2\n    \[*\] --> Idle\n    Idle --> Running : start\n    Running --> \[*\] : stop" }
+        mindmap   { set body "mindmap\n  root((Topic))\n    Idea A\n    Idea B" }
+        gantt     { set body "gantt\n    title Plan\n    dateFormat YYYY-MM-DD\n    section Phase\n    Task 1 :a1, 2026-01-01, 3d" }
+        pie       { set body "pie title Share\n    \"A\" : 40\n    \"B\" : 60" }
+        default   { set body "flowchart TD\n    A --> B" }
+    }
+    $t insert insert "\n```mermaid\n$body\n```\n"
 }
 
 proc app::editorOnChange {w args} {

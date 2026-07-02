@@ -28,6 +28,12 @@ proc app::updateToc {} {
 
 
 proc app::onTocSelect {} {
+    # Programmatische Selektion aus syncTocFromScroll ueberspringen, damit das
+    # verzoegerte <<TreeviewSelect>> hier kein gotoAnchor ausloest.
+    if {$::app::_suppressTocSelect} {
+        set ::app::_suppressTocSelect 0
+        return
+    }
     set sel [.left.toc selection]
     if {$sel eq ""} return
 
@@ -120,12 +126,14 @@ proc app::syncTocFromScroll {} {
         if {[lindex $vals 0] eq $anchor} {
             # nur aktualisieren wenn sich was geaendert hat
             if {[lindex [.left.toc selection] 0] eq $id} return
-            # Selektion ohne erneutes Scroll-Event setzen:
-            # binding temporaer abklemmen
-            bind .left.toc <<TreeviewSelect>> {}
+            # Selektion programmatisch setzen. Das <<TreeviewSelect>> wird von
+            # Tk verzoegert (queued) geliefert — ein temporaeres bind {}/rebind
+            # faengt es NICHT zuverlaessig ab (in 8.6 und 9.0 nachgewiesen).
+            # Darum ein Flag, das onTocSelect prueft: sonst wuerde das Event
+            # gotoAnchor ausloesen und den Viewer 1-2 Zeilen zurueckscrollen.
+            set ::app::_suppressTocSelect 1
             .left.toc selection set $id
             .left.toc see $id
-            bind .left.toc <<TreeviewSelect>> app::onTocSelect
             return
         }
     }
@@ -261,6 +269,7 @@ proc app::setTheme {name} {
     variable theme
     set theme $name
     mdstack::theme::activate $name
+    app::applyChromeTheme
 
     # Update viewer
     mdstack::theme::applyToViewer $::app::viewerPath
@@ -271,6 +280,102 @@ proc app::setTheme {name} {
 
     # Save setting
     app::saveSettings
+}
+
+# True if the given #rrggbb colour is dark (low luminance).
+proc app::_isDark {hex} {
+    if {![regexp {^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$} $hex -> r g b]} {
+        return 0
+    }
+    scan $r %x r ; scan $g %x g ; scan $b %x b
+    return [expr {(0.299*$r + 0.587*$g + 0.114*$b) < 128}]
+}
+
+# Colour the ttk chrome (toolbar, tree, tabs, status, buttons) from the active
+# viewer scheme, so the whole window matches the document area instead of the
+# flat gray default -- and dark schemes look dark everywhere, not just in the
+# viewer. Safe no-op if mdstack::theme isn't available yet.
+proc app::applyChromeTheme {} {
+    if {[catch {set th [mdstack::theme::theme [mdstack::theme::current]]}]} return
+    if {![dict exists $th bg] || ![dict exists $th fg]} return
+    set bg [dict get $th bg]
+    set fg [dict get $th fg]
+    set accent [expr {[dict exists $th link] ? [dict get $th link] : "#3a5a8c"}]
+    set dark [app::_isDark $bg]
+    set inactive [expr {$dark ? "#3a3a3a" : "#e8e8e8"}]
+    set hover    [expr {$dark ? "#454545" : "#f2f2f2"}]
+    set disabled [expr {$dark ? "#808080" : "#9a9a9a"}]
+
+    ttk::style configure . -background $bg -foreground $fg -fieldbackground $bg
+    ttk::style map . -background [list active $hover] \
+                     -foreground [list disabled $disabled]
+
+    ttk::style configure TButton -background $inactive -foreground $fg
+    ttk::style map TButton \
+        -background [list active $hover pressed $accent] \
+        -foreground [list pressed white]
+
+    ttk::style configure Treeview -background $bg -fieldbackground $bg -foreground $fg
+    ttk::style map Treeview \
+        -background [list selected $accent] -foreground [list selected white]
+
+    ttk::style configure TNotebook -background $bg
+    ttk::style configure TNotebook.Tab -background $inactive -foreground $fg
+    ttk::style map TNotebook.Tab \
+        -background [list selected $bg] -foreground [list selected $fg]
+
+    ttk::style configure TEntry -fieldbackground $bg -foreground $fg
+    ttk::style configure TCombobox -fieldbackground $bg -foreground $fg
+
+    ttk::style configure TScrollbar -background $inactive \
+        -troughcolor $bg -arrowcolor $fg
+    ttk::style map TScrollbar -background [list active $hover]
+
+    # Classic Tk menus don't follow ttk styling. Colour the existing menubar
+    # and its cascades directly, and set option-DB defaults (priority 80) so
+    # context menus created later (tree/editor popups) inherit the scheme too.
+    set mabg $accent
+    set mafg "white"
+    option add *Menu.background $bg 80
+    option add *Menu.foreground $fg 80
+    option add *Menu.activeBackground $mabg 80
+    option add *Menu.activeForeground $mafg 80
+    option add *Menu.selectColor $fg 80
+    foreach m [app::_allMenus .] {
+        catch {$m configure -background $bg -foreground $fg \
+            -activebackground $mabg -activeforeground $mafg \
+            -selectcolor $fg -relief flat -borderwidth 0}
+    }
+
+    catch {. configure -background $bg}
+}
+
+# All classic menu widgets in the tree (menubar cascades + popups).
+proc app::_allMenus {{root .}} {
+    set out {}
+    foreach w [winfo children $root] {
+        if {[winfo class $w] eq "Menu"} { lappend out $w }
+        lappend out {*}[app::_allMenus $w]
+    }
+    return $out
+}
+
+# ttk base theme: "" / "auto" -> clam on X11, native theme elsewhere.
+proc app::_autoUiTheme {} {
+    if {[tk windowingsystem] eq "x11"} { return "clam" }
+    return [ttk::style theme use]
+}
+proc app::applyUiTheme {} {
+    set name $::app::uiTheme
+    set use [expr {($name eq "" || $name eq "auto") ? [app::_autoUiTheme] : $name}]
+    if {$use ni [ttk::style theme names]} { set use [app::_autoUiTheme] }
+    catch {ttk::style theme use $use}
+    app::applyChromeTheme
+}
+proc app::setUiTheme {name} {
+    set ::app::uiTheme $name
+    app::applyUiTheme
+    catch {app::saveSettings}
 }
 
 
@@ -415,6 +520,9 @@ proc app::_syncTreeItem {parent norm} {
 # und triggert dann debounced TOC-Sync sowie Scroll-Position-Update.
 
 set ::app::_scrollSyncId ""
+# Flag: das naechste <<TreeviewSelect>> stammt aus programmatischer Selektion
+# (syncTocFromScroll) und darf onTocSelect/gotoAnchor NICHT ausloesen.
+set ::app::_suppressTocSelect 0
 
 proc app::_viewerOnScroll {origCmd args} {
     # Original (Scrollbar setzen) sofort aufrufen — damit die

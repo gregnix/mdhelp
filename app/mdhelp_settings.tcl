@@ -33,6 +33,9 @@ proc app::saveSettings {} {
     lappend data [list geometry [wm geometry .]]
     lappend data [list theme $theme]
     lappend data [list tocSyncSuppressMs $tocSyncSuppressMs]
+    lappend data [list openAfterExport $::app::openAfterExport]
+    lappend data [list editorDefaultMode $::app::editorDefaultMode]
+    lappend data [list uiTheme $::app::uiTheme]
 
     # Bookmarks
     variable bookmarks
@@ -130,6 +133,19 @@ proc app::loadSettings {} {
                             && $val >= 0 && $val <= 5000} {
                         variable tocSyncSuppressMs $val
                     }
+                }
+                openAfterExport {
+                    if {[string is boolean -strict $val]} {
+                        set ::app::openAfterExport [expr {$val ? 1 : 0}]
+                    }
+                }
+                editorDefaultMode {
+                    if {$val in {edit split preview}} {
+                        set ::app::editorDefaultMode $val
+                    }
+                }
+                uiTheme {
+                    set ::app::uiTheme $val
                 }
                 bookmarks  { set bookmarks $val }
                 recentDirs { set recentDirs $val }

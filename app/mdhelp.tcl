@@ -22,19 +22,78 @@ package require Tk 8.6-
 set appDir [file dirname [file normalize [info script]]]
 namespace eval ::app {}
 
-# Eigene Module + Diagramm-Engine (tclutils/tuflow) für PDF/HTML/Tk-Export.
+# Base ttk theme: the X11 "default" theme is flat and gray. "clam" ships with
+# Tk and looks noticeably cleaner; native themes on Windows/macOS are kept.
+if {[tk windowingsystem] eq "x11"} {
+    catch {ttk::style theme use clam}
+}
+
+# Eigene Module + genau EINE Quelle je externer Lib.
+#
+# Frueher wurde tclutils aus dem Bundle UND einem Dev-Checkout UND ~/lib/tcltk
+# hinzugefuegt -> bis zu drei Kopien auf tm::path. Jetzt gewinnt der ERSTE
+# existierende Kandidat (deterministische Einzelquelle). Pro Lib ueberschreibbar
+# mit <NAME>_HOME=/pfad/zum/<name>-repo (wie build.tcl). Hinweis: tcl::tm::path
+# dedupliziert identische Pfade, ein zusaetzlicher gleicher Eintrag aus
+# ~/.tclshrc schadet also nicht.
 proc ::app::_addTmPathIfDir {dir} {
     if {$dir ne "" && [file isdirectory $dir]} {
         catch { tcl::tm::path add $dir }
+        return 1
+    }
+    return 0
+}
+
+# mdhelp-eigene Module (immer).
+::app::_addTmPathIfDir [file join $appDir .. lib tm]
+
+# Genau EINE Quelle je Lib: Env-Override -> Dev-Checkout (Geschwister) ->
+# gebuendelte libs/ -> ~/lib/tcltk-Installation.
+proc ::app::_addLib {name envVar tmsub} {
+    global appDir env
+    set cands {}
+    if {[info exists env($envVar)] && $env($envVar) ne ""} {
+        lappend cands [file join $env($envVar) {*}$tmsub]
+    }
+    lappend cands \
+        [file normalize [file join $appDir .. .. .. $name {*}$tmsub]] \
+        [file normalize [file join $appDir .. .. libs common $name {*}$tmsub]]
+    if {[info exists env(HOME)]} {
+        lappend cands [file join $env(HOME) lib tcltk $name {*}$tmsub]
+    }
+    foreach c $cands {
+        if {[::app::_addTmPathIfDir $c]} { return $c }
+    }
+    return ""
+}
+# One source per library (tm-root differs: lib/tm vs lib). Override each with
+# <NAME>_HOME=/path/to/<name>-repo.
+::app::_addLib tclutils   TCLUTILS_HOME   {lib tm}
+::app::_addLib tkutils    TKUTILS_HOME    {lib tm}
+::app::_addLib docir      DOCIR_HOME      {lib tm}
+::app::_addLib mdstack    MDSTACK_HOME    {lib}
+::app::_addLib pdf4tcllib PDF4TCLLIB_HOME {lib}
+
+# Platform + version specific binaries (Img, imgtools, tclpdfium, sqlite3, ...)
+# when running from source: put libs/<os>-tcl<ver>/ on auto_path. In the built
+# starpack main.tcl handles this from vendors/imaging/. Override: MDHELP_LIBS.
+proc ::app::_addPlatformLibs {} {
+    global appDir env
+    if {[info exists env(MDHELP_LIBS)] && $env(MDHELP_LIBS) ne ""} {
+        set base $env(MDHELP_LIBS)
+    } else {
+        set base [file normalize [file join $appDir .. .. libs]]
+    }
+    set osTag [expr {$::tcl_platform(platform) eq "windows" ? "windows" : "linux"}]
+    set d [file join $base $osTag-tcl[info tclversion]]
+    if {[file isdirectory $d]} {
+        if {[lsearch -exact $::auto_path $d] < 0} { lappend ::auto_path $d }
+        # pkgIndex packages (Img, imgtools0.3.1, tclpdfium, ...) resolve via
+        # auto_path; correctly-named .tm modules via tm::path.
+        catch {::tcl::tm::path add $d}
     }
 }
-::app::_addTmPathIfDir [file join $appDir .. lib tm]
-::app::_addTmPathIfDir [file normalize [file join $appDir .. .. libs tclutils lib tm]]
-::app::_addTmPathIfDir [file normalize [file join $appDir .. .. .. tclutils lib tm]]
-if {[info exists env(HOME)]} {
-    ::app::_addTmPathIfDir [file join $env(HOME) lib tcltk tclutils lib tm]
-    ::app::_addTmPathIfDir [file join $env(HOME) lib tcltk tkutils lib tm]
-}
+::app::_addPlatformLibs
 
 # --- Konfiguration ----------------------------------------------------------
 # Echter Font für Flow-/Mermaid-Diagramme im PDF-Export.
@@ -122,6 +181,16 @@ namespace eval app {
     variable viewerPath ""     ;# Path to main viewer widget
     variable notebook ""       ;# ttk::notebook for tabs
     variable editorTabs {}     ;# List of open editor tab IDs
+    # Default view mode for the editor: edit | split | preview.
+    # Single-pane by default (not split) so the editor is usable on small
+    # windows; switch per tab via the View control (pinned right).
+    variable editorDefaultMode "edit"
+    # After "Export PDF/HTML": open the result in the system default app?
+    # Toggled via a File-menu checkbutton; opener located via tclutils::tuexe.
+    variable openAfterExport 0
+    # ttk base theme override: "" = auto (clam on X11, native elsewhere),
+    # otherwise a name from [ttk::style theme names]. Persisted.
+    variable uiTheme ""
     # Nach Klick im TOC: syncTocFromScroll kurz unterdrücken (sonst
     # überschreibt die Scroll-Sync-Logik die Auswahl mit dem Abschnitt
     # *oberhalb* der sichtbaren Viewport-Zeile).
@@ -154,6 +223,21 @@ proc app::buildUI {} {
 
     menu .menubar.file -tearoff 0
     .menubar add cascade -label "File" -menu .menubar.file
+    menu .menubar.file.new -tearoff 0
+    .menubar.file add cascade -label "New" -menu .menubar.file.new
+    .menubar.file.new add command -label "Empty" \
+        -accelerator "Ctrl+N" -command {app::newFromTemplate empty}
+    .menubar.file.new add separator
+    foreach {tid tlabel} {
+        manual   "Manual page (YAML)"
+        guide    "Guide"
+        diagram  "Diagram (Mermaid)"
+        register "Register (table)"
+    } {
+        .menubar.file.new add command -label $tlabel \
+            -command [list app::newFromTemplate $tid]
+    }
+    .menubar.file add separator
     .menubar.file add command -label "Open Folder..." \
         -accelerator "Ctrl+O" -command app::openFolder
     .menubar.file add command -label "Reload" \
@@ -172,6 +256,8 @@ proc app::buildUI {} {
         -command app::exportPdf
     .menubar.file add command -label "Export HTML..." \
         -command app::exportHtml
+    .menubar.file add checkbutton -label "Open after export" \
+        -variable ::app::openAfterExport
     .menubar.file add separator
     .menubar.file add command -label "Quit" \
         -accelerator "Ctrl+Q" -command app::quit
@@ -206,9 +292,9 @@ proc app::buildUI {} {
         -accelerator "Ctrl+-" -command {app::changeFontSize -1}
     .menubar.view add separator
     .menubar.view add command -label "Back" \
-        -accelerator "Alt+Links" -command app::goBack
+        -accelerator "Alt+Left" -command app::goBack
     .menubar.view add command -label "Forward" \
-        -accelerator "Alt+Rechts" -command app::goForward
+        -accelerator "Alt+Right" -command app::goForward
     .menubar.view add command -label "Home" \
         -accelerator "Alt+Home" -command app::goHome
     .menubar.view add separator
@@ -221,6 +307,17 @@ proc app::buildUI {} {
         .menubar.view.theme add radiobutton -label $label \
             -variable ::app::theme -value $tn \
             -command [list app::setTheme $tn]
+    }
+
+    menu .menubar.view.uitheme -tearoff 0
+    .menubar.view add cascade -label "UI Theme" -menu .menubar.view.uitheme
+    .menubar.view.uitheme add radiobutton -label "Auto" \
+        -variable ::app::uiTheme -value "" -command [list app::setUiTheme ""]
+    .menubar.view.uitheme add separator
+    foreach tn [lsort [ttk::style theme names]] {
+        .menubar.view.uitheme add radiobutton -label $tn \
+            -variable ::app::uiTheme -value $tn \
+            -command [list app::setUiTheme $tn]
     }
 
     menu .menubar.bookmarks -tearoff 0
@@ -259,6 +356,8 @@ proc app::buildUI {} {
     .menubar.help add separator
     .menubar.help add command -label "Validate AST" \
         -command app::validateAst
+    .menubar.help add command -label "System Info" \
+        -command app::showSystemInfo
     .menubar.help add command -label "About mdhelp 4" \
         -command app::showAbout
 
@@ -266,13 +365,15 @@ proc app::buildUI {} {
     ttk::frame .toolbar
     pack .toolbar -fill x -padx 2 -pady 2
 
-    ttk::button .toolbar.back -text "<- Back" -width 10 \
+    ttk::button .toolbar.back -text "\u2190 Back" -width 9 \
         -command app::goBack
-    ttk::button .toolbar.fwd  -text "Forward ->" -width 8 \
+    ttk::button .toolbar.fwd  -text "Forward \u2192" -width 10 \
         -command app::goForward
-    ttk::button .toolbar.home -text "Start" -width 6 \
+    ttk::button .toolbar.home -text "Home" -width 6 \
         -command app::goHome
     ttk::separator .toolbar.s0 -orient vertical
+    ttk::button .toolbar.new -text "New" -width 6 \
+        -command {tk_popup .menubar.file.new [winfo pointerx .] [winfo pointery .]}
     ttk::button .toolbar.open -text "Open" -width 8 \
         -command app::openFolder
     ttk::separator .toolbar.s1 -orient vertical
@@ -290,7 +391,7 @@ proc app::buildUI {} {
         -command app::exportPdf
 
     pack .toolbar.back .toolbar.fwd .toolbar.home \
-         .toolbar.s0 .toolbar.open \
+         .toolbar.s0 .toolbar.new .toolbar.open \
          .toolbar.s1 .toolbar.search \
          .toolbar.s2 .toolbar.smaller .toolbar.bigger \
          .toolbar.s3 .toolbar.edit .toolbar.pdf \
@@ -365,7 +466,7 @@ proc app::buildUI {} {
     ttk::button .searchbar.r.all -text "Replace All" -width 12 \
         -command app::doReplaceAll
     ttk::label .searchbar.r.hint \
-        -text "(Replace nur im Editor-Tab)" -foreground "#888888"
+        -text "(Replace only in the editor tab)" -foreground "#888888"
 
     pack .searchbar.r.lbl .searchbar.r.entry \
          .searchbar.r.do .searchbar.r.donext .searchbar.r.all \
@@ -503,6 +604,8 @@ proc app::buildUI {} {
     bind . <Control-H> app::toggleReplace
     bind . <Control-o> app::openFolder
     bind . <Control-O> app::openFolder
+    bind . <Control-n> {app::newFromTemplate empty}
+    bind . <Control-N> {app::newFromTemplate empty}
     bind . <Control-q> {app::quit}
     bind . <Control-Q> {app::quit}
     bind . <Control-d> app::addBookmark
@@ -754,6 +857,162 @@ proc app::finishExportDiags {what outFile} {
 # ============================================================
 # PDF Export
 # ============================================================
+# ============================================================
+# New document from template + open exported file
+# ============================================================
+
+# Attach balloon tooltips to toolbar buttons and the (cryptic) search toggles.
+# Uses tkutils::tkuballoon; a no-op if that module isn't available.
+proc app::_addTooltips {} {
+    if {[catch {package require tkutils::tkuballoon}]} return
+    set tips [list \
+        .toolbar.back    "Go back (Alt+Left)" \
+        .toolbar.fwd     "Go forward (Alt+Right)" \
+        .toolbar.home    "Home page" \
+        .toolbar.new     "New document from a template (Ctrl+N)" \
+        .toolbar.open    "Open a documentation folder (Ctrl+O)" \
+        .toolbar.search  "Find in page or across files" \
+        .toolbar.smaller "Smaller font" \
+        .toolbar.bigger  "Larger font" \
+        .toolbar.edit    "Edit the current file" \
+        .toolbar.pdf     "Export to PDF" \
+        .searchbar.f.cCase  "Match case" \
+        .searchbar.f.cWord  "Whole word only" \
+        .searchbar.f.cRegex "Regular expression" ]
+    foreach {w text} $tips {
+        if {[winfo exists $w]} { catch {tkutils::tkuballoon::add $w $text} }
+    }
+}
+
+proc app::_template {id} {
+    switch -- $id {
+        manual {
+            return "---\ntitle: \nsection: n\nmanual-section: Tcl Built-In Commands\n---\n\n# NAME\n\nname - one-line description\n\n# SYNOPSIS\n\n**name** ?arg ...?\n\n# DESCRIPTION\n\nText.\n"
+        }
+        guide {
+            return "# Title\n\nShort introduction.\n\n## Section 1\n\nText.\n\n## Section 2\n\nText.\n"
+        }
+        diagram {
+            return "# Diagram\n\n```mermaid\nflowchart TD\n    A\[Start\] --> B\{Decision?\}\n    B -->|yes| C\[OK\]\n    B -->|no| D\[Stop\]\n```\n"
+        }
+        register {
+            return "# Register\n\n| Feld | Wert |\n|------|------|\n| Stand | JJJJ-MM-TT |\n| Verantwortlich | |\n\n## Eintraege\n\n| Name | Wert | Notizen |\n|------|------|---------|\n| | | |\n| | | |\n"
+        }
+        default {
+            return "# Title\n\n"
+        }
+    }
+}
+
+proc app::newFromTemplate {id} {
+    set out [tk_getSaveFile \
+        -title "New Markdown" \
+        -defaultextension .md \
+        -initialfile "untitled.md" \
+        -filetypes {{"Markdown" {.md .markdown}} {"All Files" *}}]
+    if {$out eq ""} return
+    if {[catch {
+        set fh [open $out w]
+        fconfigure $fh -encoding utf-8
+        puts -nonewline $fh [app::_template $id]
+        close $fh
+    } err]} {
+        tk_messageBox -parent . -icon error -title "New" \
+            -message "Could not create file:\n$err"
+        return
+    }
+    # Refresh the tree (harmless if the file is outside the current folder),
+    # then open the new file in the editor.
+    catch {app::reload}
+    app::openInEditor $out
+}
+
+# Open a file (e.g. a freshly exported PDF/HTML) in the system default app.
+# The launcher is located cross-platform via tclutils::tuexe.
+proc app::openExported {file} {
+    if {![file exists $file]} return
+    if {$::tcl_platform(platform) eq "windows"} {
+        catch {exec {*}[auto_execok start] "" [file nativename $file] &}
+        return
+    }
+    catch {package require tclutils::tuexe}
+    set opener ""
+    catch {set opener [tclutils::tuexe::find {xdg-open open}]}
+    if {$opener eq ""} {
+        catch {set opener [tclutils::tuexe::find \
+            {firefox chromium chromium-browser google-chrome}]}
+    }
+    if {$opener ne ""} {
+        catch {exec $opener $file &}
+    } else {
+        tk_messageBox -parent . -icon info -title "Open" \
+            -message "Kein Oeffner gefunden (xdg-open/open).\nDatei gespeichert:\n$file"
+    }
+}
+
+# Resolve each loaded key package to the .tm file it was actually loaded from
+# and register it with tuappinfo, so the report's "Loaded TM Modules" section
+# reveals WHICH file won (useful when several copies sit on tm::path).
+proc app::_trackKeyModules {} {
+    catch {set ::tclutils::tuappinfo::loadedTm {}}
+    set keys {
+        mdstack::pdf mdstack::parser mdstack::html mdstack::viewer
+        mdstack::editorkit mdstack::model mdstack::theme
+        docir docir::pdf docir::html docir::mdSource docir::diagram
+        pdf4tcllib pdf4tcl
+        tclutils::tuappinfo tclutils::tuexe
+        tkutils::tkuwheel tkutils::tkudialog
+    }
+    foreach p $keys {
+        if {[catch {set v [package present $p]}]} continue
+        if {[catch {set s [package ifneeded $p $v]}]} continue
+        if {[regexp {[^\s{}\"]+\.tm} $s f]} {
+            catch {tclutils::tuappinfo::trackTm $f}
+        }
+    }
+}
+
+# System information: report from tclutils::tuappinfo, shown copyable via
+# tkutils::tkudialog (with a plain fallback if the modules are unavailable).
+proc app::showSystemInfo {} {
+    if {[catch {package require tclutils::tuappinfo}]} {
+        tk_messageBox -parent . -icon warning -title "System Info" \
+            -message "tclutils::tuappinfo is not available."
+        return
+    }
+    app::_trackKeyModules
+    set report [tclutils::tuappinfo::buildReport \
+        -title "mdhelp - System Information"]
+    if {[llength [info commands app::imagingReport]]} {
+        append report "\n[app::imagingReport]"
+    }
+
+    if {![catch {package require tkutils::tkudialog}]} {
+        tkutils::tkudialog::showInfo \
+            "System information (press Copy to put the full report on the clipboard):" \
+            -parent . -title "System Information" -detail $report
+        return
+    }
+
+    # Fallback: minimal copyable toplevel
+    set t .sysinfo
+    catch {destroy $t}
+    toplevel $t
+    wm title $t "System Information"
+    text $t.txt -wrap none -width 80 -height 24 \
+        -yscrollcommand [list $t.ys set] -xscrollcommand [list $t.xs set]
+    ttk::scrollbar $t.ys -orient vertical   -command [list $t.txt yview]
+    ttk::scrollbar $t.xs -orient horizontal -command [list $t.txt xview]
+    ttk::button $t.close -text "Close" -command [list destroy $t]
+    grid $t.txt $t.ys -sticky nsew
+    grid $t.xs -sticky ew
+    grid $t.close -sticky e -padx 4 -pady 4
+    grid rowconfigure $t 0 -weight 1
+    grid columnconfigure $t 0 -weight 1
+    $t.txt insert end $report
+    $t.txt configure -state disabled
+}
+
 proc app::exportPdf {} {
     variable currentFile
     variable currentAst
@@ -796,10 +1055,44 @@ proc app::exportPdf {} {
         set pages [mdstack::pdf::export $currentAst $outFile {*}$pdfArgs]
         set ::app::statusText "PDF exported: $outFile ($pages pages)"
         app::finishExportDiags {PDF-Export} $outFile
+        app::_warnMissingImages .
+        if {$::app::openAfterExport} { app::openExported $outFile }
     } err]} {
         tk_messageBox -icon error -title "PDF Error" \
             -message "Export failed:\n$err"
     }
+}
+
+# Image references in $mdText whose target file is missing (resolved relative
+# to $root; absolute paths and file:// as-is; http(s) skipped).
+proc app::_missingImages {mdText root} {
+    set missing {}
+    foreach {whole alt url} \
+            [regexp -all -inline {!\[([^\]]*)\]\(([^) ]+)} $mdText] {
+        if {[string match "http://*" $url] || [string match "https://*" $url]} {
+            continue
+        }
+        if {[string match "file://*" $url]} { set url [string range $url 7 end] }
+        set p [expr {[file pathtype $url] eq "absolute" \
+            ? $url : [file join $root $url]}]
+        if {![file exists $p]} { lappend missing $url }
+    }
+    return $missing
+}
+
+# Warn about image references that won't render because the file is missing.
+proc app::_warnMissingImages {parent} {
+    variable currentFile
+    if {$currentFile eq "" || ![file readable $currentFile]} return
+    if {[catch {open $currentFile} fh]} return
+    fconfigure $fh -encoding utf-8
+    set txt [read $fh] ; close $fh
+    set miss [app::_missingImages $txt [file dirname $currentFile]]
+    if {[llength $miss] == 0} return
+    tk_messageBox -parent $parent -icon warning -title "Missing images" \
+        -message "These image files were not found, so they stay blank in the\
+ output:\n\n[join $miss \n]\n\nCheck that the path (relative to the document) is\
+ correct and the file exists."
 }
 proc app::exportHtml {} {
     variable currentFile
@@ -848,6 +1141,8 @@ proc app::exportHtml {} {
         mdstack::html::export $currentAst $outFile {*}$exportArgs
         set ::app::statusText "HTML exported: $outFile (style: $styleLabel)"
         app::finishExportDiags {HTML-Export} $outFile
+        app::_warnMissingImages .
+        if {$::app::openAfterExport} { app::openExported $outFile }
     } err]} {
         tk_messageBox -icon error -title "HTML Error" \
             -message "Export failed:\n$err"
@@ -1068,6 +1363,9 @@ source [file join [file dirname [info script]] deepl_helper.tcl]
 # Side-by-Side Viewer (Original ↔ Übersetzung)
 source [file join [file dirname [info script]] sidebyside.tcl]
 
+# Image Tool (open/crop/resize/save + insert into editor)
+source [file join [file dirname [info script]] mdhelp_imagetool.tcl]
+
 # ============================================================
 # Start
 # ============================================================
@@ -1085,6 +1383,12 @@ app::buildUI
 
 # DeepL-Eintrag ans Tools-Menue anhaengen
 .menubar.tools add separator
+.menubar.tools add command \
+    -label "Insert Image..." \
+    -command { app::imageTool }
+.menubar.tools add command \
+    -label "Insert existing image (as-is)..." \
+    -command { app::insertExistingImage }
 .menubar.tools add command \
     -label "Translate selection (DeepL)" \
     -command { app::deeplTranslateActive }
@@ -1134,6 +1438,8 @@ if {$::app::fontSize != 11} {
 }
 
 # Apply theme (after GUI build)
+app::applyUiTheme
+app::_addTooltips
 if {$::app::theme ne "hell"} {
     mdstack::theme::applyToViewer $::app::viewerPath
 }

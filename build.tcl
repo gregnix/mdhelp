@@ -30,7 +30,10 @@ set scriptDir  [file dirname [file normalize [info script]]]
 set buildDir   [file join $scriptDir build]
 set distDir    [file join $scriptDir dist]
 set runtimeDir [file normalize [file join $scriptDir .. runtimes]]
-set libsDir    [file normalize [file join $scriptDir .. libs]]
+# Pure-Tcl libraries now live under libs/common/<repo>; the compiled,
+# per-platform binaries under libs/<os>-tcl<ver>/.
+set libsBase   [file normalize [file join $scriptDir .. libs]]
+set libsDir    [file join $libsBase common]
 set vfsDir     [file join $buildDir  mdhelp.vfs]
 
 # Welche Top-Level-Verzeichnisse von $scriptDir 1:1 ins VFS kopiert werden.
@@ -222,6 +225,14 @@ tcl::tm::path add [file join $appDir apptm]
 foreach pkgDir [glob -nocomplain -directory [file join $appDir vendors pkg] *] {
     if {[file isdirectory $pkgDir]} { lappend ::auto_path $pkgDir }
 }
+# Platform + version specific binaries (Img, imgtools, tclpdfium, sqlite3, ...).
+# The VFS ships all platforms; pick the one matching this interpreter.
+set osTag [expr {$tcl_platform(platform) eq "windows" ? "windows" : "linux"}]
+set imgDir [file join $appDir vendors imaging $osTag-tcl[info tclversion]]
+if {[file isdirectory $imgDir]} {
+    lappend ::auto_path $imgDir
+    catch {tcl::tm::path add $imgDir}
+}
 source [file join $appDir mdhelp_app.tcl]
 }
     set fh [open [file join $vfsDir main.tcl] w]
@@ -334,6 +345,23 @@ source [file join $appDir mdhelp_app.tcl]
         copyDir $pkgSrc [file join $vfsDir vendors pkg [file tail $pkgSrc]]
     } else {
         warn "pdf4tcl nicht gefunden (weder libs/pdf4tcl noch PDF4TCL_HOME) -- PDF-Export im Starpack wird fehlschlagen"
+    }
+
+    # --- Platform-Binaries (Img, imgtools, tclpdfium, sqlite3, ...) ---
+    # libs/<os>-tcl<ver>/ -> vendors/imaging/<os>-tcl<ver>/. One VFS serves both
+    # starpacks, so all platform layers are shipped; main.tcl selects the
+    # matching one at runtime via [info tclversion] + platform.
+    global libsBase
+    set imgCopied 0
+    foreach plat [glob -nocomplain -directory $libsBase -type d *-tcl*] {
+        set tail [file tail $plat]
+        copyDir $plat [file join $vfsDir vendors imaging $tail]
+        incr imgCopied
+    }
+    if {$imgCopied > 0} {
+        ok "Platform-Binaries: $imgCopied Ebene(n) nach vendors/imaging/ kopiert"
+    } else {
+        warn "Keine libs/<os>-tcl<ver>/ gefunden -- Image Tool/Imaging im Starpack ohne Binaries"
     }
 
     # --- Statische Asset-Verzeichnisse (docs, styles, ...) ---
