@@ -137,10 +137,10 @@ package require mdstack::contextmenu 0.1
 package require mdhelp_search    0.2
 package require mdhelp_history   0.1
 package require mdhelp_clipboard 0.1
-# mdindexgen ist optional: nur fuer Search-Index. Skip-on-missing,
+# mdstack::indexgen ist optional: nur fuer Search-Index. Skip-on-missing,
 # damit mdhelp auch ohne dieses Modul startet.
 set ::hasIndexgen 0
-if {![catch {package require mdindexgen 0.1}]} {
+if {![catch {package require mdstack::indexgen 0.1}]} {
     set ::hasIndexgen 1
 }
 
@@ -727,7 +727,7 @@ proc app::showAbout {} {
     set modules "  mdparser 0.2,  mdmodel 0.1,  mdviewer 0.3\n"
     append modules "  mdvalidator 0.1,  mdeditorkit 0.2,  mdoutline 0.1\n"
     append modules "  mdtheme 0.1,  mdtext 0.1,  mdcontextmenu 0.1\n"
-    append modules "  mdindexgen 0.1\n"
+    append modules "  mdstack::indexgen 0.1\n"
     append modules "  mdhelp_search 0.1,  mdhelp_history 0.1,  mdhelp_clipboard 0.1"
     if {$::app::hasSpellcheck} {
         append modules "\n  mdspellcheck 0.1 ([mdspellcheck::lang])"
@@ -795,12 +795,12 @@ proc app::generateIndex {} {
 
     if {!$::hasIndexgen} {
         tk_messageBox -icon info -title "Index" \
-            -message "mdindexgen package not installed.\nIndex generation unavailable."
+            -message "mdstack::indexgen package not installed.\nIndex generation unavailable."
         return
     }
 
     if {[catch {
-        mdindexgen::scan $docsRoot
+        mdstack::indexgen::scan $docsRoot
     } err]} {
         tk_messageBox -icon error -title "Index Error" \
             -message "Index generation failed:\n$err"

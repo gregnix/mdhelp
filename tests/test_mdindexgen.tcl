@@ -16,8 +16,8 @@ if {[info exists ::env(TCLLIBPATH)]} {
     }
 }
 
-if {[catch {package require mdindexgen 0.1} err]} {
-    puts "SKIP: Paket 'mdindexgen' nicht verfuegbar ($err)"
+if {[catch {package require mdstack::indexgen} err]} {
+    puts "SKIP: Paket 'mdstack::indexgen' nicht verfuegbar ($err)"
     puts "      Diese Test-Suite testet einen optionalen Indexer."
     exit 2
 }
@@ -118,23 +118,23 @@ puts ""
 puts "--- readTitle ---"
 setupTestDir
 
-set title1 [mdindexgen::readTitle [file join $testDir features.md]]
+set title1 [mdstack::indexgen::readTitle [file join $testDir features.md]]
 assert "title-h1"       {$title1 eq "Features"}
 
-set title2 [mdindexgen::readTitle [file join $testDir notes.md]]
+set title2 [mdstack::indexgen::readTitle [file join $testDir notes.md]]
 assert "title-no-h1"    {$title2 eq "notes"}
 
-set title3 [mdindexgen::readTitle [file join $testDir config.md]]
+set title3 [mdstack::indexgen::readTitle [file join $testDir config.md]]
 assert "title-yaml"     {$title3 eq "Konfiguration" || $title3 eq "config"}
 
 # -- 2. Scan (dryrun) --
 puts "--- Scan (dryrun) ---"
-set result [mdindexgen::scan $testDir -dryrun 1 -verbose 0]
+set result [mdstack::indexgen::scan $testDir -dryrun 1 -verbose 0]
 assert "scan-returns-dict" {[dict exists $result updated] && [dict exists $result created]}
 
 # -- 3. Scan (real) --
 puts "--- Scan (real) ---"
-set result [mdindexgen::scan $testDir -verbose 0]
+set result [mdstack::indexgen::scan $testDir -verbose 0]
 assert "scan-created"    {[llength [dict get $result created]] > 0 || [llength [dict get $result updated]] > 0}
 
 # Index-Datei muss existieren
@@ -164,12 +164,12 @@ if {[file exists [file join $testDir indexsub.md]]} {
 
 # -- 5. Idempotenz --
 puts "--- Idempotenz ---"
-set result2 [mdindexgen::scan $testDir -verbose 0]
+set result2 [mdstack::indexgen::scan $testDir -verbose 0]
 assert "idempotent"      {[llength [dict get $result2 unchanged]] > 0}
 
 # -- 6. updateIndex einzeln --
 puts "--- updateIndex ---"
-set r [mdindexgen::updateIndex $testDir -dryrun 1]
+set r [mdstack::indexgen::updateIndex $testDir -dryrun 1]
 assert "update-index-ok" {$r ne ""}
 
 # -- Aufraeuemen --
