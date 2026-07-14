@@ -52,9 +52,13 @@ proc checkPackage {pkg version optional} {
 }
 
 if {!$skipDepCheck} {
+    # Version numbers are MINIMUM pins (package require semantics): docir
+    # ships as 0.1.1, so demanding "1.0" could never be satisfied -- the
+    # dependency check reported docir as missing and refused to run the whole
+    # suite unless --skip-dep-check was passed.
     set requiredDeps {
         {mdstack::parser 0.2 required}
-        {docir          1.0 required}
+        {docir          0.1 required}
         {pdf4tcl        0.9 optional}
     }
 

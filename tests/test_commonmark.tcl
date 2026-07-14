@@ -122,7 +122,10 @@ assert "indent-code" {[blockTypes "    code line 1\n    code line 2"] eq {code_b
 puts "--- Emphasis ---"
 assert "em"          {[inlineTypes "Hello *world*"] eq {text emphasis}}
 assert "strong"      {[inlineTypes "Hello **world**"] eq {text strong}}
-assert "strong-em"   {[inlineTypes "***both***"] eq {strong}}
+# CommonMark resolves *** as <em><strong>x</strong></em>: the strong pair is
+# consumed first, the leftover single pair wraps it (mdstack::parser 0.7.0,
+# delimiter stack). Before that the nesting was inverted.
+assert "strong-em"   {[inlineTypes "***both***"] eq {emphasis}}
 assert "strike"      {[inlineTypes "~~gone~~"] eq {strike}}
 
 # -- 7. Code Spans --
@@ -166,8 +169,10 @@ assert "hard-break" {[lsearch -exact $types linebreak] >= 0}
 
 # -- 14. Backslash Escapes --
 puts "--- Backslash Escapes ---"
-assert "esc-star"    {[inlineTypes "\\*not italic\\*"] eq {text text text}}
-assert "esc-bracket" {[inlineTypes "\\\[not link\\\]"] eq {text text text}}
+# Since parser 0.7.0 adjacent text nodes are merged, so an escaped run is one
+# text node, not three. What is tested stays the same: no emphasis, no link.
+assert "esc-star"    {[inlineTypes "\\*not italic\\*"] eq {text}}
+assert "esc-bracket" {[inlineTypes "\\\[not link\\\]"] eq {text}}
 
 # -- 15. Reference Links --
 puts "--- Reference Links ---"
