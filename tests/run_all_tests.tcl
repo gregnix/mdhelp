@@ -133,11 +133,36 @@ foreach testFile [lsort [glob -nocomplain [file join $testDir test_*.tcl]]] {
     puts $output
     puts ""
 
+    # Zweites Signal neben dem Rueckgabewert: die tcltest-Bilanzzeile.
+    #
+    # tcltests cleanupTests setzt den Rueckgabewert NICHT. Eine Datei, die
+    # damit endet und kein eigenes exit hat, liefert immer 0 -- auch bei
+    # Fehlschlaegen, und diese Schleife hat sie als "passed" gezaehlt.
+    # Gemessen am 29.09.2026 an test_toc_suppress.tcl mit einem absichtlich
+    # roten Test:
+    #
+    #     Total 11  Passed 10  Failed 1      EXIT=0
+    #     Runner: "1 passed", nicht unter "Failed suites"
+    #
+    # Die Datei setzt ihren Rueckgabewert jetzt selbst. Damit ein vergessenes
+    # exit in einer kuenftigen Datei nicht wieder durchrutscht, zaehlt hier
+    # zusaetzlich eine Bilanzzeile mit Failed > 0 als Fehler -- egal was der
+    # Rueckgabewert sagt.
+    set bilanzFehler 0
+    if {[regexp {Total\s+\d+\s+Passed\s+\d+\s+Skipped\s+\d+\s+Failed\s+(\d+)} \
+            $output -> _fld] && $_fld > 0} {
+        set bilanzFehler $_fld
+    }
+
     # Exit-Codes:
     #   0  -> pass
     #   2  -> skip (Convention: optionale Dependency fehlt, kein Fehler)
     #   *  -> fail
-    if {$rc == 0} {
+    if {$rc == 0 && $bilanzFehler > 0} {
+        puts "  ACHTUNG: $name endet mit 0, meldet aber $bilanzFehler Fehlschlag/-e"
+        lappend failedSuites "$name ($bilanzFehler failed, exit 0)"
+        incr totalFail
+    } elseif {$rc == 0} {
         incr totalPass
     } else {
         # exec catch liefert errorCode mit CHILDSTATUS pid exitCode

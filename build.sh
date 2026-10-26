@@ -1,9 +1,7 @@
 #!/bin/bash
 # build.sh -- VERALTET / DEPRECATED
 #
-# Bitte build.tcl verwenden:
-#   tclsh build.tcl
-#
-# build.tcl laeuft auf Linux und Windows (mit BAWT tclsh).
-echo "Bitte build.tcl verwenden: tclsh build.tcl"
+# Bitte build.tcl mit Tcl 9 verwenden (Einzeldatei per zipfs, siehe BUILD.md):
+#   tclsh9.0 build.tcl
+echo "Bitte build.tcl verwenden: tclsh9.0 build.tcl  (siehe BUILD.md)"
 exit 1

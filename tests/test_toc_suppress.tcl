@@ -164,4 +164,15 @@ test toc-suppress-2.4 {mdhelp_settings.tcl persistiert tocSyncSuppressMs} -body 
     list save=$hasSave load=$hasLoad
 } -result {save=1 load=1}
 
+# cleanupTests setzt den Rueckgabewert NICHT. Bis hierher endete diese Datei
+# damit immer mit 0 -- auch bei Fehlschlaegen. run_all_tests.tcl wertet den
+# Rueckgabewert aus, hat die Suite also als "passed" gezaehlt. Gemessen mit
+# einem absichtlich roten Test:
+#
+#     Total 11  Passed 10  Failed 1      EXIT=0
+#     run_all_tests.tcl: "1 passed", nicht unter "Failed suites"
+#
+# numTests wird von cleanupTests zurueckgesetzt, darum vorher sichern.
+set _fehlgeschlagen $::tcltest::numTests(Failed)
 cleanupTests
+exit [expr {$_fehlgeschlagen > 0 ? 1 : 0}]

@@ -3,6 +3,104 @@
 All notable changes to mdhelp 4 are documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-10-22 — mdhelp 5: eine Datei je Plattform mit Tcl/Tk 9
+
+### Changed
+
+- **`build.tcl` neu, nur Tcl 9.** Statt Tclkit 8.6 + `sdx.kit` (Starpack)
+  baut es mit `zipfs mkimg` aus einem statischen `wish` 9 (Zipkit) eine
+  Datei: `dist/mdhelp-linux-x86_64`, `dist/mdhelp-windows-x86_64.exe`.
+  macOS: `build.tcl macos` legt die Stage an und übergibt an
+  `app-bauen.sh` aus dem macOS-Buch (App-Bündel, ad hoc signiert).
+  Einzelheiten in `BUILD.md`.
+- **Nur die eigene Plattform in der Datei.** mdhelp 4 trug alle vier
+  Binärschichten und den ganzen pdf4tcl-Checkout (14 MB mit `nogit/`,
+  Demos, Tests). Jetzt: pdf4tcl nur mit Laufzeitdateien, Bibliotheken nur
+  `.tm`, `lib/bin/` nur für die Zielplattform. Linux-Datei: 8,8 MB.
+- **`main.tcl` nimmt nur Pfade aus dem Bundle.** Tcl-9-Zipkits übernehmen
+  `TCLLIBPATH` und `TCL9_0_TM_PATH`; ein fremdes docir oder mdstack auf
+  dem Rechner wurde sonst geladen. Gemessen: Start mit `env -i` läuft.
+- **Mit dabei:** tclutils, tkutils (+ Tablelist), nroffparser und
+  DejaVu-Schriften. Bisher fehlten in der Einzeldatei Systeminfo,
+  Dialoge, Tooltips, Manpages, und unter Windows/macOS hatte der
+  PDF-Export keine Unicode-Schrift.
+- `app/mdhelp.tcl`: In der Einzeldatei (`::mdhelp_bundled`) kein
+  `*_HOME`, kein Dev-Checkout, kein `~/lib/tcltk`. Plattformschicht
+  `macos-tcl9.0` neben `linux-` und `windows-`. Titel, About: mdhelp 5.
+- `build.sh` verweist auf `tclsh9.0 build.tcl`.
+- Quellfassung: `tcldocs-config`, `tcldocs-launcher` und `man-viewer`
+  werden wie docir über `libs/common/` oder `*_HOME` gefunden
+  (`TCLDOCS_CONFIG_HOME`, `TCLDOCS_LAUNCHER_HOME`, `MANVIEWER_HOME`);
+  vorher mussten sie über `~/.tclshrc` auf dem tm-Pfad liegen. Geprüft
+  mit `--selftest` unter Tcl 8.6.14 und 9.0.4.
+
+### Added
+
+- **`--selftest ?DIR?`**: startet, öffnet die eingebaute Hilfe,
+  exportiert ein PDF, schreibt `mdhelp-selftest.txt` (Pakete mit Version,
+  Schrift, ersetzte Zeichen) und endet mit 0 oder 1. Zum Prüfen jeder
+  gebauten Datei, auch unter Windows (dort ohne Konsole).
+- `--selftest` nennt das Schriftsystem von Tk (`xft` oder `x11`) und die
+  Schrift der Anzeige. Ein Kit ohne Xft zeichnet unter Linux ohne
+  Kantenglättung; das liegt am Kit, nicht an mdhelp.
+- macOS: `::tk::mac::OpenDocument` öffnet Dateien, die im Finder auf
+  mdhelp gezogen werden.
+
+### Fixed
+
+- **Startseite leer**, wenn der Doku-Ordner nur Unterordner hat (die
+  eingebaute Hilfe liegt in `docs/en/`): `goHome` nimmt dann die erste
+  `index.md` eines Unterordners.
+- **Hilfe-Menü in der Quellfassung:** `openHelpPage` suchte
+  `app/docs/` statt `docs/`.
+- About nannte `mdhelp_search 0.1`, geladen wird 0.2.
+
+### Mit geändert (andere Repos, gleicher Tag)
+
+- mdstack-Parser: TIP-700-Zäune `::: {.synopsis} :::` und
+  `::: {.info -version="9.0"}` werden als div erkannt (vorher als
+  Streumarker verworfen); in der Synopsis ist jeder Zeilenumbruch hart.
+  Die Übersicht einer Manpage steht damit Zeile für Zeile da, in mdhelp,
+  mdserver und im PDF.
+- mdstack-Parser: keine Inline-Mathe über einen Zeilenumbruch.
+
+## 2026-09-29 — Tests: Fehlschläge in `test_toc_suppress.tcl` waren unsichtbar
+
+### Fixed
+
+- **`tests/test_toc_suppress.tcl` endete immer mit 0.** Die Datei schliesst mit
+  `cleanupTests`, und das setzt den Rueckgabewert **nicht**. `run_all_tests.tcl`
+  wertet genau diesen Wert aus, hat die Suite also als `passed` gezaehlt --
+  egal wie viele Tests darin fehlschlugen. Gemessen mit einem absichtlich
+  roten Test:
+
+  ```
+  test_toc_suppress.tcl: Total 11  Passed 10  Skipped 0  Failed 1
+  EXIT=0
+  run_all_tests.tcl:     "1 passed"  --  nicht unter "Failed suites"
+  ```
+
+  Sie setzt den Wert jetzt selbst (`numTests(Failed)` vor `cleanupTests`
+  sichern, da es dort zurueckgesetzt wird). Danach:
+
+  ```
+  EXIT=1
+  Failed suites:  - test_toc_suppress.tcl
+  ```
+
+  Die sechs anderen Testdateien enden mit `exit $fail` und waren nie betroffen;
+  `test_toc_suppress.tcl` ist die einzige tcltest-basierte.
+
+- **`tests/run_all_tests.tcl` wertet jetzt ein zweites Signal aus.** Eine
+  tcltest-Bilanzzeile mit `Failed > 0` gilt als Fehler, auch wenn der
+  Rueckgabewert 0 ist -- damit rutscht ein vergessenes `exit` in einer
+  kuenftigen Datei nicht wieder durch:
+
+  ```
+  ACHTUNG: test_toc_suppress.tcl endet mit 0, meldet aber 1 Fehlschlag/-e
+  Failed suites:  - test_toc_suppress.tcl (1 failed, exit 0)
+  ```
+
 
 
 ## 2026-05-16 — Build: fix tcldocs-config / tcldocs-launcher VFS layout

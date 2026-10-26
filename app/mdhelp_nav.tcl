@@ -323,6 +323,14 @@ proc app::goHome {} {
         set files [glob -nocomplain -directory $docsRoot *.md]
         if {[llength $files] > 0} {
             app::openFile [lindex [lsort $files] 0] 1
+        } else {
+            # Nur Unterordner (z. B. docs/en/): deren index.md
+            foreach d [lsort [glob -nocomplain -directory $docsRoot -type d *]] {
+                if {[file exists [file join $d index.md]]} {
+                    app::openFile [file join $d index.md] 1
+                    break
+                }
+            }
         }
     }
 }

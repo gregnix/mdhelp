@@ -76,6 +76,20 @@ wish app/mdhelp.tcl /path/to/md  # open specific directory
 
 Requires Tcl/Tk 8.6+ or 9.x. On Windows with BAWT: `wish app\mdhelp.tcl`.
 
+### Single file (mdhelp 5, Tcl/Tk 9)
+
+One executable per platform, no Tcl installation needed:
+
+```bash
+./mdhelp-linux-x86_64 [dir-or-file]
+mdhelp-windows-x86_64.exe [dir-or-file]
+open mdhelp.app                      # macOS
+./mdhelp-linux-x86_64 --selftest     # check a build: report + test PDF
+```
+
+Built with `tclsh9.0 build.tcl` from a static `wish` 9 (zipkit, e.g. from
+BAWT); macOS as an app bundle. See `BUILD.md`.
+
 ## Features
 
 - Markdown viewer with live preview

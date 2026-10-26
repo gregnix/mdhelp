@@ -68,15 +68,30 @@ proc ::app::_addLib {name envVar tmsub} {
 }
 # One source per library (tm-root differs: lib/tm vs lib). Override each with
 # <NAME>_HOME=/path/to/<name>-repo.
-::app::_addLib tclutils   TCLUTILS_HOME   {lib tm}
-::app::_addLib tkutils    TKUTILS_HOME    {lib tm}
-::app::_addLib docir      DOCIR_HOME      {lib tm}
-::app::_addLib mdstack    MDSTACK_HOME    {lib}
-::app::_addLib pdf4tcllib PDF4TCLLIB_HOME {lib}
+# In the single-file build (zipkit) main.tcl has already set up auto_path and
+# tm::path from the bundle alone and set ::mdhelp_bundled. Then nothing from
+# outside is added -- no dev checkout, no ~/lib/tcltk, no *_HOME variable.
+if {![info exists ::mdhelp_bundled]} {
+    ::app::_addLib tclutils   TCLUTILS_HOME   {lib tm}
+    ::app::_addLib tkutils    TKUTILS_HOME    {lib tm}
+    ::app::_addLib docir      DOCIR_HOME      {lib tm}
+    ::app::_addLib mdstack    MDSTACK_HOME    {lib}
+    ::app::_addLib pdf4tcllib PDF4TCLLIB_HOME {lib}
+    ::app::_addLib man-viewer MANVIEWER_HOME  {lib tm}
+    ::app::_addLib tcldocs-config   TCLDOCS_CONFIG_HOME   {lib tm}
+    ::app::_addLib tcldocs-launcher TCLDOCS_LAUNCHER_HOME {lib tm}
+}
 
 # Platform + version specific binaries (Img, imgtools, tclpdfium, sqlite3, ...)
 # when running from source: put libs/<os>-tcl<ver>/ on auto_path. In the built
 # starpack main.tcl handles this from vendors/imaging/. Override: MDHELP_LIBS.
+# linux | windows | macos -- names the per-platform library layer
+# (libs/<tag>-tcl<ver>/, in the bundle lib/bin/).
+proc ::app::platformTag {} {
+    if {$::tcl_platform(platform) eq "windows"} { return windows }
+    if {$::tcl_platform(os) eq "Darwin"}        { return macos }
+    return linux
+}
 proc ::app::_addPlatformLibs {} {
     global appDir env
     if {[info exists env(MDHELP_LIBS)] && $env(MDHELP_LIBS) ne ""} {
@@ -84,8 +99,7 @@ proc ::app::_addPlatformLibs {} {
     } else {
         set base [file normalize [file join $appDir .. .. libs]]
     }
-    set osTag [expr {$::tcl_platform(platform) eq "windows" ? "windows" : "linux"}]
-    set d [file join $base $osTag-tcl[info tclversion]]
+    set d [file join $base [::app::platformTag]-tcl[info tclversion]]
     if {[file isdirectory $d]} {
         if {[lsearch -exact $::auto_path $d] < 0} { lappend ::auto_path $d }
         # pkgIndex packages (Img, imgtools0.3.1, tclpdfium, ...) resolve via
@@ -93,7 +107,7 @@ proc ::app::_addPlatformLibs {} {
         catch {::tcl::tm::path add $d}
     }
 }
-::app::_addPlatformLibs
+if {![info exists ::mdhelp_bundled]} { ::app::_addPlatformLibs }
 
 # --- Konfiguration ----------------------------------------------------------
 # Echter Font für Flow-/Mermaid-Diagramme im PDF-Export.
@@ -106,6 +120,7 @@ namespace eval ::app {
     proc resolveFlowFont {appDir} {
         set cands [list \
             [file join $appDir .. fonts DejaVuSans.ttf] \
+            [file join $appDir .. lib fonts DejaVuSans.ttf] \
             /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
             /usr/share/fonts/TTF/DejaVuSans.ttf \
         ]
@@ -213,7 +228,7 @@ if {![catch {package require mdspellcheck 0.1}]} {
 # Build window
 # ============================================================
 proc app::buildUI {} {
-    wm title . "mdhelp 4"
+    wm title . "mdhelp 5"
     wm geometry . 1000x700
     wm minsize . 600 400
 
@@ -358,7 +373,7 @@ proc app::buildUI {} {
         -command app::validateAst
     .menubar.help add command -label "System Info" \
         -command app::showSystemInfo
-    .menubar.help add command -label "About mdhelp 4" \
+    .menubar.help add command -label "About mdhelp 5" \
         -command app::showAbout
 
     # -- Toolbar --
@@ -668,8 +683,8 @@ source [file join [file dirname [info script]] mdhelp_ui.tcl]
 # About dialog
 # ============================================================
 proc app::showAbout {} {
-    set version     "0.2"
-    set lastchanged "2026-06-14"
+    set version     "5.0"
+    set lastchanged "2026-10-22"
 
     # ============================================================
     # Stack-Komponenten erkennen: Adapter vs. Legacy
@@ -728,7 +743,7 @@ proc app::showAbout {} {
     append modules "  mdvalidator 0.1,  mdeditorkit 0.2,  mdoutline 0.1\n"
     append modules "  mdtheme 0.1,  mdtext 0.1,  mdcontextmenu 0.1\n"
     append modules "  mdstack::indexgen 0.1\n"
-    append modules "  mdhelp_search 0.1,  mdhelp_history 0.1,  mdhelp_clipboard 0.1"
+    append modules "  mdhelp_search 0.2,  mdhelp_history 0.1,  mdhelp_clipboard 0.1"
     if {$::app::hasSpellcheck} {
         append modules "\n  mdspellcheck 0.1 ([mdspellcheck::lang])"
     }
@@ -747,12 +762,16 @@ proc app::showAbout {} {
     append msg "=== Backend ===\n"
     append msg "pdf4tcl:    $pdf4tclVer\n"
     append msg "pdf4tcllib: $pdf4tcllibVer\n"
-    append msg "Tcl/Tk:     [info patchlevel]\n"
+    append msg "Tcl/Tk:     [info patchlevel]"
+    if {[info exists ::mdhelp_bundled]} {
+        append msg "  (Einzeldatei, [::app::platformTag])"
+    }
+    append msg "\n"
     append msg "\n"
     append msg "=== Module ===\n"
     append msg "$modules"
 
-    tk_messageBox -icon info -title "About mdhelp 4" -message $msg
+    tk_messageBox -icon info -title "About mdhelp 5" -message $msg
 }
 
 proc app::openHelpPage {page} {
@@ -761,7 +780,10 @@ proc app::openHelpPage {page} {
     # auf das Hilfe-Verzeichnis umgeschaltet.
     variable docsRoot
 
-    set helpDir [file join $::appDir docs]
+    # Source tree: app/../docs; old starpack: docs/ next to the app files.
+    set helpDir [file join $::appDir .. docs]
+    if {![file isdirectory $helpDir]} { set helpDir [file join $::appDir docs] }
+    set helpDir [file normalize $helpDir]
     set helpFile [file join $helpDir $page]
 
     if {![file exists $helpFile]} {
@@ -1371,7 +1393,7 @@ source [file join [file dirname [info script]] mdhelp_imagetool.tcl]
 # ============================================================
 
 # Load settings (setzt fontSize, docsRoot, geometry, bookmarks)
-puts "mdhelp 0.1 startet..."
+catch {puts "mdhelp 5 startet..."}
 app::loadSettings
 
 app::buildUI
@@ -1444,9 +1466,104 @@ if {$::app::theme ne "hell"} {
     mdstack::theme::applyToViewer $::app::viewerPath
 }
 
+# --selftest ?DIR?: start, open the built-in help, export one PDF, write a
+# report to DIR/mdhelp-selftest.txt (default: the current directory) and exit
+# with 0 (all required parts work) or 1. Meant for checking a single-file
+# build on each platform -- a Windows wish has no console, hence the file.
+set ::app::selftest ""
+if {[lindex $argv 0] eq "--selftest"} {
+    set ::app::selftest [pwd]
+    if {$argc > 1} { set ::app::selftest [file normalize [lindex $argv 1]] }
+    set argv {}
+    set argc 0
+}
+
+proc app::runSelftest {} {
+    set dir $::app::selftest
+    set rep {}
+    set fail 0
+    lappend rep "mdhelp 5 Selbsttest  [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
+    lappend rep "Tcl/Tk   [info patchlevel]  [tk windowingsystem]  $::tcl_platform(os) $::tcl_platform(machine)"
+    lappend rep "Programm [info nameofexecutable]"
+    lappend rep "Bundle   [expr {[info exists ::mdhelp_bundled] ? {ja} : {nein (Quellbaum)}}]"
+    # Schrift am Bildschirm: Ein Tk ohne Xft (fontsystem x11) zeichnet unter
+    # Linux mit den alten X-Core-Schriften, ohne Kantenglaettung -- sieht
+    # grob aus. Das haengt am Kit, nicht an mdhelp.
+    set fs "?"
+    catch {set fs [::tk::pkgconfig get fontsystem]}
+    set vf ""
+    catch {set vf [font actual [[mdstack::viewer::widget $::app::viewerPath] cget -font]]}
+    lappend rep "Schrift  fontsystem=$fs  TkDefaultFont=[font actual TkDefaultFont -family] [font actual TkDefaultFont -size]"
+    if {$vf ne ""} { lappend rep "         Anzeige: [dict get $vf -family] [dict get $vf -size]" }
+    if {$fs eq "x11"} {
+        lappend rep "WARN     Tk ohne Xft: Bildschirmschrift ohne Kantenglaettung (Kit mit Xft bauen)"
+    }
+    lappend rep ""
+    foreach {pkg must} {
+        mdstack::parser 1  mdstack::viewer 1  mdstack::pdf 1  docir 1  docir::pdf 1
+        pdf4tcl 1  pdf4tcllib 1  tcldocs::config 1
+        tclutils::tuappinfo 0  tkutils::tkudialog 0  tkutils::tkuimage 0
+        tkutils::tkuballoon 0  nroffparser 0  Img 0  imgtools 0  tclpdfium 0
+    } {
+        if {[catch {package require $pkg} v]} {
+            if {$must} {
+                lappend rep [format "FEHLT  %-20s %s" $pkg $v]
+                incr fail
+            } else {
+                lappend rep [format "--     %-20s optional: %s" $pkg [string range [lindex [split $v \n] 0] 0 70]]
+            }
+        } else {
+            lappend rep [format "ok     %-20s %s" $pkg $v]
+        }
+    }
+    lappend rep ""
+    if {$::app::currentAst eq ""} {
+        lappend rep "FEHLT  Hilfeseite: nichts geladen ($::app::docsRoot)"
+        incr fail
+    } else {
+        set n [llength [dict get $::app::currentAst blocks]]
+        lappend rep "ok     Hilfeseite: [file tail $::app::currentFile], $n Bloecke"
+        set w ""
+        catch {set w [mdstack::viewer::widget $::app::viewerPath]}
+        if {$w ne "" && [string length [string trim [$w get 1.0 end]]] > 0} {
+            lappend rep "ok     Anzeige: [string length [$w get 1.0 end]] Zeichen"
+        } else {
+            lappend rep "FEHLT  Anzeige: leer"
+            incr fail
+        }
+        set pdf [file join $dir mdhelp-selftest.pdf]
+        catch {pdf4tcllib::unicode::resetSubst}
+        if {[catch {
+            set pages [mdstack::pdf::export $::app::currentAst $pdf -title Selbsttest \
+                -cid 1 -root [file dirname $::app::currentFile]]
+        } err]} {
+            lappend rep "FEHLT  PDF: $err"
+            incr fail
+        } else {
+            lappend rep "ok     PDF: $pages Seite(n), [file size $pdf] Bytes -> $pdf"
+            set font "?"
+            catch {set font [set ::pdf4tcllib::fonts::fontSans]}
+            lappend rep "       Schrift: $font"
+            if {![catch {pdf4tcllib::unicode::substReport} r] && [dict get $r count] > 0} {
+                lappend rep "WARN   PDF: [dict get $r count] Zeichen ersetzt: [dict get $r chars]"
+            }
+        }
+    }
+    lappend rep "" "Ergebnis: [expr {$fail ? "$fail Fehler" : "alles da"}]"
+    set out [file join $dir mdhelp-selftest.txt]
+    set fh [open $out w]
+    fconfigure $fh -encoding utf-8
+    puts $fh [join $rep \n]
+    close $fh
+    catch {puts [join $rep \n]}
+    exit [expr {$fail ? 1 : 0}]
+}
+
 # Docs directory: command line > settings > default
 set openFile ""
-if {$argc > 0} {
+if {$::app::selftest ne ""} {
+    set docsDir [file normalize [file join $appDir .. docs]]
+} elseif {$argc > 0} {
     set arg [lindex $argv 0]
     if {[file isfile $arg]} {
         # Single file: directory as tree, open file directly
@@ -1470,4 +1587,22 @@ if {[file isdirectory $docsDir]} {
     }
 } else {
     set ::app::statusText "No docs directory found: $docsDir"
+}
+if {$::app::selftest ne ""} { after 1000 app::runSelftest }
+
+# macOS: Dateien, die im Finder auf das Programm gezogen oder mit
+# "Oeffnen mit" geoeffnet werden, kommen nicht ueber argv, sondern ueber
+# diese Prozedur (Tk-Handbuch tk_mac). Ordner laden, Datei anzeigen.
+if {[tk windowingsystem] eq "aqua"} {
+    proc ::tk::mac::OpenDocument {args} {
+        set f [lindex $args 0]
+        if {$f eq ""} return
+        if {[file isdirectory $f]} {
+            app::loadTree $f
+            app::goHome
+        } else {
+            app::loadTree [file dirname $f]
+            app::openFile $f 1
+        }
+    }
 }
